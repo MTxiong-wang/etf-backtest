@@ -1,0 +1,11 @@
+{
+  "comment": "扫描网格与运行参数。run_sweep.py 会把 configs/portfolios/ 下每个组合与本文件的 band_ratios / absolute_thresholds 做笛卡尔积，逐个回测并对比。",
+  "start": "2021-07-01",
+  "end": "2026-07-09",
+  "initial_capital": 1000000,
+  "monitor_step": 5,
+  "rf": 0.02,
+  "benchmark": {"code": "SH510300", "name": "沪深300ETF"},
+  "band_ratios": [0.25, 0.5, 0.75],
+  "absolute_thresholds": [0.02, 0.05, 0.10]
+}

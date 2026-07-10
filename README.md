@@ -1,137 +1,145 @@
 # ETF投资组合回测系统
 
-基于xalpha框架的ETF投资组合再平衡策略回测工具。
+基于 [xalpha](https://github.com/refraction-ray/xalpha) 框架的 ETF 投资组合**再平衡**回测工具。支持多标的按目标比例配置、偏离阈值自动调仓，并提供**配置化多参数扫描**（组合占比 × 调仓阈值 笛卡尔积）与**自包含 HTML 报告**。
 
 ## 功能特点
 
-- 多只ETF按目标比例配置
-- 持仓比例偏离阈值自动触发调仓
-- 支持自定义回测时间范围
-- 完整的回测报告（收益率、最大回撤、调仓次数等）
-- 可视化分析（净值曲线、配置变化、收益分布）
+- 多只 ETF 按目标比例配置，持仓偏离阈值自动触发调仓
+- 两种再平衡模式：`band`（带状相对，差额由资金池吸收）/ `absolute`（绝对偏离全仓再平衡）
+- **配置化扫描**：组合占比 × 调仓阈值 笛卡尔积回测，对比年化 / 夏普 / 最大回撤 / 卡玛等
+- **品种级盈利拆解**：每个策略里每个标的的盈利 / 收益率 / 占比 / 市值 / 成本
+- **自包含 HTML 报告**（替代图片）：策略总览 + 排名 + 品种盈利矩阵（一键切换「收益率%」↔「盈利万元」）+ 各组合利润发动机
+- 场内 ETF（SH/SZ）+ 场外基金（F，真实净值含分红）+ 货币基金（M）混合回测
+- 多次回测共享行情缓存，网格扫描时第 2 个组合起大幅提速
 
-## 安装依赖
+## 安装
 
 ```bash
 pip install xalpha pandas matplotlib
+pip install -e .          # 让 examples / run_sweep 等脚本能 import etf_backtest
 ```
+
+Python ≥ 3.7。
 
 ## 快速开始
 
-### 基础使用
+### 方式一：配置化扫描（推荐）
+
+把持仓和阈值写成 JSON，跑 `run_sweep.py` 一键出对比报告。
+
+**组合配置** `configs/portfolios/balanced.json`（权重会自动归一化，不必和为 1）：
+```json
+{
+  "name": "balanced",
+  "reservoir_code": "F006484",
+  "etf_list": [
+    {"code": "SH510300", "name": "沪深300ETF", "target_ratio": 0.4},
+    {"code": "SZ159915", "name": "创业板ETF",  "target_ratio": 0.3},
+    {"code": "F006484",  "name": "国开债",     "target_ratio": 0.3}
+  ]
+}
+```
+
+**扫描网格** `configs/sweep.json`：
+```json
+{
+  "start": "2021-07-01", "end": "2026-07-09",
+  "initial_capital": 1000000, "monitor_step": 5, "rf": 0.02,
+  "benchmark": {"code": "SH510300", "name": "沪深300ETF"},
+  "band_ratios": [0.25, 0.5, 0.75],
+  "absolute_thresholds": [0.02, 0.05, 0.10]
+}
+```
+
+**运行**：
+```bash
+python run_sweep.py
+# 输出（写到 output/）：
+#   sweep_comparison.csv    策略级指标明细（年化/夏普/回撤/波动/卡玛/调仓）
+#   profit_by_holding.csv   策略×标的 盈利明细（盈利/占比/收益率/市值/成本）
+#   report.html             自包含 HTML 报告（浏览器直接打开）
+```
+
+内置 3 档示例组合：`conservative`（保守）/ `balanced`（平衡）/ `aggressive`（进取），同用 17 标的池。改组合 / 阈值 / 区间直接编辑 `configs/` 下的 JSON 即可，无需改代码。
+
+### 方式二：单组合编程式
 
 ```python
 import etf_backtest as etfb
 
-# 定义ETF组合配置
 config = etfb.ETFPortfolioConfig(
     etf_list=[
-        {"code": "SH512100", "name": "沪深300ETF", "target_ratio": 0.4},
-        {"code": "SH512980", "name": "科创50ETF", "target_ratio": 0.3},
-        {"code": "SZ159915", "name": "创业板ETF", "target_ratio": 0.3}
+        {"code": "SH512100", "name": "中证1000ETF", "target_ratio": 0.4},
+        {"code": "SZ159915", "name": "创业板ETF",  "target_ratio": 0.3},
+        {"code": "F006484",  "name": "国开债",     "target_ratio": 0.3}
     ],
-    start_date="2020-01-01",
-    end_date="2023-12-31",
+    start_date="2020-01-01", end_date="2023-12-31",
     initial_capital=100000,
-    rebalance_threshold=0.02  # 2%偏离触发调仓
+    rebalance_mode="band", band_ratio=0.5, reservoir_code="F006484",
 )
 
-# 创建回测实例并运行
 backtest = etfb.ETFPortfolioBacktest(config)
 backtest.backtest()
-
-# 打印回测报告
 backtest.print_report()
 ```
 
-### 运行示例
-
+或跑生产入口（带状再平衡 + 债券资金池，含多策略对比与图表）：
 ```bash
-cd D:\Codes\etf_backtest
-python examples.py
+python run_portfolio.py 2021-07-01 2026-07-09 0.5 100000 5
 ```
+
+编程式可视化（净值曲线 / 配置变化 / 收益分布 / 策略对比）见 `utils.py` 的 `plot_portfolio_value` / `plot_allocation_history` / `plot_returns_distribution` / `compare_strategies`；玩具示例 `python examples.py`。
 
 ## ETF代码格式
 
-- 上交所ETF：`SH` + 6位数字，如 `SH512100`
-- 深交所ETF：`SZ` + 6位数字，如 `SZ159915`
+- 上交所 ETF：`SH` + 6 位，如 `SH512100`
+- 深交所 ETF：`SZ` + 6 位，如 `SZ159915`
+- 场外基金：`F` + 6 位，如 `F006484`（走真实净值，含分红）
+- 货币基金：`M` + 6 位，如 `M003171`
 
-## 主要参数说明
+## 主要参数
 
 | 参数 | 说明 | 默认值 |
 |------|------|--------|
-| `etf_list` | ETF配置列表（code, name, target_ratio） | 必填 |
-| `start_date` | 回测开始日期 (YYYY-MM-DD) | 必填 |
-| `end_date` | 回测结束日期 (YYYY-MM-DD) | 必填 |
+| `etf_list` | 标的配置（code / name / target_ratio） | 必填 |
+| `start_date` / `end_date` | 回测区间 (YYYY-MM-DD) | 必填 |
 | `initial_capital` | 初始资金 | 100000 |
-| `rebalance_threshold` | 偏离阈值（如0.02表示2%） | 0.02 |
+| `rebalance_mode` | `band` / `absolute` | absolute |
+| `rebalance_threshold` | absolute 模式偏离阈值 | 0.02 |
+| `band_ratio` | band 模式相对带宽（如 0.5 = ±50%） | 0.5 |
+| `reservoir_code` | band 模式资金池代码 | F006484 |
+| `monitor_step` | 每隔 N 个交易日检查 / 记录（长区间用 5 提速） | 1 |
+| `rf` | 夏普比率的无风险年化利率 | 0.02 |
 
-## 回测报告指标
+## 回测指标
 
-- **最终资产**：回测结束时的总资产
-- **总收益率**：期间累计收益率
-- **年化收益**：年化收益率
-- **XIRR**：内部收益率
-- **最大回撤**：期间最大回撤幅度
-- **调仓次数**：触发调仓的次数
-
-## 可视化功能
-
-```python
-# 绘制净值曲线
-etfb.plot_portfolio_value(
-    backtest.get_portfolio_history(),
-    backtest.get_rebalance_dates()
-)
-
-# 绘制配置变化
-etfb.plot_allocation_history(
-    backtest.get_portfolio_history(),
-    config.etf_list
-)
-
-# 绘制收益率分布
-etfb.plot_returns_distribution(
-    backtest.get_portfolio_history()
-)
-
-# 对比多个策略
-etfb.compare_strategies(reports, labels)
-```
+期末资产、总收益率、年化收益、最大回撤、年化波动率、夏普比率（无风险利率 `rf`）、卡玛比率、调仓次数。品种级另有：盈利（= 期末市值 − 持有成本，已含分红）、盈利占比、收益率。
 
 ## 项目结构
 
 ```
 etf_backtest/
-├── __init__.py      # 模块入口
-├── config.py        # 配置管理
-├── data.py          # 数据获取
-├── core.py          # 回测引擎
-├── utils.py         # 工具函数
-├── examples.py      # 使用示例
-└── README.md        # 文档
+├── config.py          # 配置类 + JSON 加载器（load_portfolio_file / load_sweep_file / build_config）
+├── core.py            # 回测引擎（ETFPortfolioBacktest，子类化 xalpha BTE）
+├── data.py            # 场内标的行情获取 / 缓存
+├── utils.py           # 净值 / 配置绘图、策略对比
+├── report.py          # HTML 报告生成器（generate_report_html）
+├── run_portfolio.py   # 单组合生产入口 + 指标计算（compute_metrics）
+├── run_sweep.py       # 配置化多参数扫描入口
+├── examples.py        # 编程式示例
+├── configs/
+│   ├── sweep.json              # 扫描网格 + 运行参数
+│   └── portfolios/             # 组合持仓（conservative / balanced / aggressive）
+└── output/            # 回测产物（CSV + HTML 报告，已 gitignore，不入库）
 ```
 
 ## 注意事项
 
-1. 确保网络连接正常，需要从在线数据源获取ETF历史数据
-2. 回测只在A股交易日运行
-3. 调仓操作考虑了0.5%的赎回费估算
-4. 首次运行会下载数据，可能需要一些时间
-
-## 常见问题
-
-**Q: 为什么某些ETF获取不到数据？**
-
-A: 请检查ETF代码格式是否正确（SH/SZ前缀+6位数字），以及该ETF是否在指定时间范围内存在。
-
-**Q: 如何调整调仓频率？**
-
-A: 通过修改 `rebalance_threshold` 参数，阈值越小调仓越频繁。
-
-**Q: 能否添加交易成本和滑点？**
-
-A: 当前版本已考虑0.5%赎回费，更精细的成本控制可在后续版本添加。
+1. 首次运行需联网，从雪球（SH/SZ）/ 东方财富（F）下载行情。
+2. 回测只在 A 股交易日运行；调仓估算 0.5% 赎回费（买入无费）。
+3. `monitor_step` 越大越快但对阈值再平衡结果影响很小，长区间建议 5。
+4. 输出产物在 `output/`（不入库）；`configs/` 配置入库。
+5. 短区间 + 宽阈值时可能不触发再平衡，同一组合各阈值结果会相同——属正常，跑完整区间才会分化。
 
 ## 许可证
 

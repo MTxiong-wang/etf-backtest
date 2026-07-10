@@ -1,0 +1,24 @@
+{
+  "name": "aggressive",
+  "comment": "进取型：权益≈75% / 债券≈15% / 黄金≈5% / 现金≈5%。加重科创/创业板/恒生科技/纳指/标普等成长与海外敞口，债券与现金压缩。",
+  "reservoir_code": "F006484",
+  "etf_list": [
+    {"code": "SH510300", "name": "沪深300ETF",   "target_ratio": 0.100},
+    {"code": "SH510050", "name": "上证50ETF",     "target_ratio": 0.040},
+    {"code": "SH588080", "name": "科创50ETF",     "target_ratio": 0.060},
+    {"code": "SH512890", "name": "红利低波ETF",   "target_ratio": 0.080},
+    {"code": "SZ159920", "name": "恒生ETF",       "target_ratio": 0.040},
+    {"code": "SH513180", "name": "恒生科技ETF",   "target_ratio": 0.060},
+    {"code": "SH510500", "name": "中证500ETF",    "target_ratio": 0.050},
+    {"code": "SH512100", "name": "中证1000ETF",   "target_ratio": 0.050},
+    {"code": "SZ159941", "name": "纳指100ETF",    "target_ratio": 0.100},
+    {"code": "SH513500", "name": "标普500ETF",    "target_ratio": 0.100},
+    {"code": "SH518880", "name": "黄金ETF",       "target_ratio": 0.050},
+    {"code": "SH513030", "name": "德国DAX-ETF",   "target_ratio": 0.035},
+    {"code": "SH513880", "name": "日经225-ETF",   "target_ratio": 0.035},
+    {"code": "F006484",  "name": "广发国开债1-3y", "target_ratio": 0.080},
+    {"code": "F003376",  "name": "广发国开债7-10y","target_ratio": 0.050},
+    {"code": "F004419",  "name": "美元债QDII",    "target_ratio": 0.020},
+    {"code": "SH511990", "name": "货币ETF(现金)", "target_ratio": 0.050}
+  ]
+}

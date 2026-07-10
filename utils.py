@@ -4,10 +4,11 @@ ETF回测系统 - 工具函数模块
 """
 
 import pandas as pd
+import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 from datetime import datetime
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
 # 设置中文字体支持
 plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'Arial Unicode MS']
@@ -330,6 +331,164 @@ def compare_strategies(
     if save_path:
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
         print(f"图表已保存至: {save_path}")
+    else:
+        plt.show()
+
+    plt.close()
+
+
+def plot_sweep_heatmap(
+    results: Dict[Tuple[str, str, float], Dict],
+    portfolios: List[str],
+    band_thrs: List[float],
+    abs_thrs: List[float],
+    save_path: str = None
+):
+    """
+    绘制扫描结果热力图：2×2 子图 = (band/absolute) × (年化收益/夏普)。
+
+    每个子图：行=组合，列=调仓阈值档位，颜色越深越优，格子内标注精确数值。
+
+    Args:
+        results: ``{(portfolio, mode, thr): metrics}`` —— mode ∈ {"band","absolute"}，
+            thr 为对应阈值数值（band_ratio 或 absolute threshold）；metrics 为
+            ``compute_metrics`` 返回的完整指标 dict（须含 annualized 与 sharpe）。
+        portfolios: 组合名列表（行顺序）。
+        band_thrs: band_ratio 数值列表（band 子图的列顺序）。
+        abs_thrs: absolute threshold 数值列表（absolute 子图的列顺序）。
+        save_path: 保存路径；None 则交互展示。
+    """
+    def _matrix(mode, thrs, key):
+        data = np.full((len(portfolios), len(thrs)), np.nan)
+        for i, p in enumerate(portfolios):
+            for j, t in enumerate(thrs):
+                m = results.get((p, mode, t))
+                if m:
+                    data[i, j] = m[key]
+        return data
+
+    def _fmt_thr(mode, t):
+        return f"±{t * 100:.0f}%" if mode == "band" else f"{t * 100:.0f}%"
+
+    panels = [
+        ("band",     band_thrs, "annualized", "年化收益率"),
+        ("band",     band_thrs, "sharpe",     "夏普比率"),
+        ("absolute", abs_thrs,  "annualized", "年化收益率"),
+        ("absolute", abs_thrs,  "sharpe",     "夏普比率"),
+    ]
+    titles = ["band 带状再平衡", "absolute 绝对偏离再平衡"]
+
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+
+    for idx, (mode, thrs, key, metric_label) in enumerate(panels):
+        ax = axes[idx // 2][idx % 2]
+        data = _matrix(mode, thrs, key)
+
+        vmin = float(np.nanmin(data)) if not np.all(np.isnan(data)) else 0.0
+        vmax = float(np.nanmax(data)) if not np.all(np.isnan(data)) else 1.0
+        if vmin == vmax:
+            vmax = vmin + 1.0
+        ax.imshow(data, cmap="Reds", aspect="auto", vmin=vmin, vmax=vmax)
+
+        ax.set_xticks(range(len(thrs)))
+        ax.set_xticklabels([_fmt_thr(mode, t) for t in thrs])
+        ax.set_yticks(range(len(portfolios)))
+        ax.set_yticklabels(portfolios)
+        ax.set_xlabel("调仓阈值")
+        ax.set_title(f"{metric_label} · {titles[idx // 2]}", fontsize=12, fontweight="bold")
+
+        # 格子标注（深色背景用白字）
+        for i in range(len(portfolios)):
+            for j in range(len(thrs)):
+                v = data[i, j]
+                if np.isnan(v):
+                    continue
+                txt = f"{v * 100:.2f}%" if key == "annualized" else f"{v:.2f}"
+                frac = (v - vmin) / (vmax - vmin) if vmax > vmin else 0.5
+                ax.text(j, i, txt, ha="center", va="center",
+                        color="white" if frac > 0.6 else "black",
+                        fontsize=10, fontweight="bold")
+
+    fig.suptitle("组合 × 调仓阈值 扫描对比", fontsize=15, fontweight="bold")
+    fig.tight_layout(rect=[0, 0, 1, 0.96])
+
+    if save_path:
+        plt.savefig(save_path, dpi=200, bbox_inches="tight")
+        print(f"热力图已保存至: {save_path}")
+    else:
+        plt.show()
+
+    plt.close()
+
+
+def plot_holding_heatmap(
+    profit_mat,
+    return_mat,
+    holdings,
+    strategies,
+    save_path: str = None
+):
+    """
+    绘制「各策略 × 各标的」盈利拆解热力图（上下两栏，红色系，符合 A 股红涨惯例）。
+
+    - 上栏：各标的盈利（万元），sequential Reds（越红越赚）。
+    - 下栏：各标的收益率(%)，diverging RdBu_r（红=正收益/盈利，蓝=负收益/亏损，无绿色）。
+
+    Args:
+        profit_mat: 二维数组 [n_holdings][n_strategies]，单位**元**，未持有处用 np.nan。
+        return_mat: 二维数组 [n_holdings][n_strategies]，单位 %（如 121.3 表示 121.3%）。
+        holdings: 行标签（标的短名）。
+        strategies: 列标签（策略标签）。
+        save_path: 保存路径；None 则交互展示。
+    """
+    arr_p = np.array(profit_mat, dtype=float) / 1e4   # 元 -> 万元
+    arr_r = np.array(return_mat, dtype=float)
+    nH, nS = arr_p.shape
+
+    fig, axes = plt.subplots(2, 1, figsize=(max(13, nS * 0.85), max(8, nH * 0.42) + 3))
+
+    def _draw(ax, arr, title, diverging, fmt):
+        if diverging:
+            vlim = np.nanmax(np.abs(arr))
+            if not vlim or np.isnan(vlim):
+                vlim = 1.0
+            cmap = plt.cm.RdBu_r.copy()   # 红=正/盈利, 蓝=负/亏损
+            ax.imshow(arr, cmap=cmap, aspect="auto", vmin=-vlim, vmax=vlim)
+            thresh = vlim
+            dark = lambda v: abs(v) > 0.6 * thresh
+        else:
+            vmax = np.nanmax(arr)
+            if not vmax or np.isnan(vmax):
+                vmax = 1.0
+            cmap = plt.cm.Reds.copy()     # 红色系，越深越赚
+            ax.imshow(arr, cmap=cmap, aspect="auto", vmin=0, vmax=vmax)
+            thresh = vmax
+            dark = lambda v: v > 0.6 * thresh
+        cmap.set_bad("#f0f0f0")           # 未持有/NaN 用浅灰
+
+        ax.set_xticks(range(nS))
+        ax.set_xticklabels(strategies, rotation=90, fontsize=8)
+        ax.set_yticks(range(nH))
+        ax.set_yticklabels(holdings, fontsize=9)
+        ax.set_title(title, fontsize=12, fontweight="bold")
+
+        for i in range(nH):
+            for j in range(nS):
+                v = arr[i, j]
+                if np.isnan(v):
+                    continue
+                ax.text(j, i, fmt(v), ha="center", va="center", fontsize=7,
+                        color="white" if dark(v) else "black")
+
+    _draw(axes[0], arr_p, "各标的盈利（万元）", diverging=False, fmt=lambda v: f"{v:.1f}")
+    _draw(axes[1], arr_r, "各标的收益率（%，红=盈利 / 蓝=亏损）", diverging=True, fmt=lambda v: f"{v:.0f}")
+
+    fig.suptitle("各策略 × 各标的 盈利拆解", fontsize=15, fontweight="bold")
+    fig.tight_layout(rect=[0, 0, 1, 0.97])
+
+    if save_path:
+        plt.savefig(save_path, dpi=180, bbox_inches="tight")
+        print(f"品种盈利热力图已保存至: {save_path}")
     else:
         plt.show()
 

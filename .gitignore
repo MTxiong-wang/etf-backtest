@@ -39,3 +39,10 @@ data/cache/
 # Test files
 test_*.py
 *.log
+
+# 输出产物（回测结果与图表，可随时重新生成）
+output/
+
+# 配置文件需要入库（覆盖上面的 *.json 忽略）
+!configs/
+!configs/**
