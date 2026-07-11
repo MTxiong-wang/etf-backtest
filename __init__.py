@@ -46,6 +46,33 @@ def configure_cache(path=_DEFAULT_CACHE_DIR, backend="csv"):
 # 下方子模块的顶层代码不会触发 get_daily，故在此处配置即可。
 configure_cache()
 
+
+import logging
+import sys
+
+
+def setup_logging():
+    """配置日志：UTF-8 stdout/stderr + 时间戳格式。
+
+    解决 Windows 控制台默认 GBK 导致的中文乱码，并给日志加时间戳。
+    在 ``import etf_backtest`` 时自动调用一次。
+    """
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+        stream=sys.stdout,
+    )
+
+
+# 导入即配置日志（UTF-8 + 时间戳）
+setup_logging()
+
 from .config import ETFPortfolioConfig, validate_etf_code, normalize_ratios
 from .core import ETFPortfolioBacktest
 from .utils import (

@@ -3,6 +3,7 @@
 ETF回测系统 - 核心回测引擎
 """
 
+import logging
 import pandas as pd
 from datetime import datetime
 from typing import Dict, List, Optional
@@ -13,6 +14,8 @@ from xalpha.universal import vinfo, get_daily
 from xalpha.cons import opendate_set
 
 from .config import ETFPortfolioConfig
+
+logger = logging.getLogger(__name__)
 
 
 class ETFPortfolioBacktest(BTE):
@@ -94,7 +97,7 @@ class ETFPortfolioBacktest(BTE):
                         self._info_cache[code] = info
 
             except Exception as e:
-                print(f"警告: 获取 {code} 数据失败: {e}")
+                logger.warning(f"获取 {code} 数据失败: {e}")
 
         # 标记是否已建仓
         self.is_initialized = False
@@ -172,10 +175,7 @@ class ETFPortfolioBacktest(BTE):
             date: 建仓日期
         """
         if self.verbose:
-            print(f"\n{'='*60}")
-            print(f"初始建仓: {date.strftime('%Y-%m-%d')}")
-            print(f"Initial capital: CNY {self.config.initial_capital:,.2f}")
-            print(f"{'='*60}")
+            logger.info(f"初始建仓: {date.strftime('%Y-%m-%d')} | Initial capital: CNY {self.config.initial_capital:,.2f}")
 
         for etf_config in self.config.etf_list:
             code = etf_config['code']
@@ -189,9 +189,9 @@ class ETFPortfolioBacktest(BTE):
             try:
                 self.buy(code, round(invest_amount / (1 + self.config.buy_fee), 2), date)
                 if self.verbose:
-                    print(f"  买入 {code} ({name}): CNY{invest_amount:,.2f} ({target_ratio:.2%})")
+                    logger.info(f"  买入 {code} ({name}): CNY{invest_amount:,.2f} ({target_ratio:.2%})")
             except Exception as e:
-                print(f"  错误: 买入 {code} 失败: {e}")
+                logger.error(f"买入 {code} 失败: {e}")
 
     def _check_rebalance_needed(self, date: pd.Timestamp, summary_df) -> bool:
         """
@@ -242,10 +242,7 @@ class ETFPortfolioBacktest(BTE):
 
             if deviation > self.config.rebalance_threshold:
                 if self.verbose:
-                    print(f"\n检测到偏离: {code}")
-                    print(f"  目标比例: {target_ratio:.2%}")
-                    print(f"  当前比例: {current_ratio:.2%}")
-                    print(f"  偏离度: {deviation:.2%} (阈值: {self.config.rebalance_threshold:.2%})")
+                    logger.info(f"检测到偏离: {code} 目标 {target_ratio:.2%} 当前 {current_ratio:.2%} 偏离 {deviation:.2%} (阈值 {self.config.rebalance_threshold:.2%})")
                 return True
 
         return False
@@ -266,8 +263,7 @@ class ETFPortfolioBacktest(BTE):
             lo, hi = target * (1 - band), target * (1 + band)
             if ratio < lo or ratio > hi:
                 if self.verbose:
-                    print(f"\n触发带状调仓: {code} 目标{target:.2%} 当前{ratio:.2%} "
-                          f"(带宽 [{lo:.2%}, {hi:.2%}])")
+                    logger.info(f"触发带状调仓: {code} 目标 {target:.2%} 当前 {ratio:.2%} (带宽 [{lo:.2%}, {hi:.2%}])")
                 return True
         return False
 
@@ -285,9 +281,7 @@ class ETFPortfolioBacktest(BTE):
         self.rebalance_dates.append(date)
 
         if self.verbose:
-            print(f"\n{'='*60}")
-            print(f"执行调仓 #{self.rebalance_count}: {date.strftime('%Y-%m-%d')}")
-            print(f"{'='*60}")
+            logger.info(f"执行调仓 #{self.rebalance_count}: {date.strftime('%Y-%m-%d')}")
 
         # 获取当前组合
         sys = self.get_current_mul()
@@ -332,16 +326,16 @@ class ETFPortfolioBacktest(BTE):
                     self.sell(code, sell_share, date)
 
                     if self.verbose:
-                        print(f"  卖出 {code} ({name}): {sell_share} 份, 约 CNY{delta:,.2f}")
+                        logger.info(f"  卖出 {code} ({name}): {sell_share} 份, 约 CNY{delta:,.2f}")
                 else:
                     # 买入低配部分（round 到分，规避 xalpha 自定义申购费断言）
                     buy_amount = round(abs(delta) / (1 + self.config.buy_fee), 2)
                     self.buy(code, buy_amount, date)
 
                     if self.verbose:
-                        print(f"  买入 {code} ({name}): CNY{buy_amount:,.2f}")
+                        logger.info(f"  买入 {code} ({name}): CNY{buy_amount:,.2f}")
             except Exception as e:
-                print(f"  错误: 调仓 {code} 失败: {e}")
+                logger.error(f"调仓 {code} 失败: {e}")
 
     def _execute_band(self, date, summary_df, total_value):
         """带状再平衡：把落到带外的标的拉回目标权重，差额与资金池(reservoir_code)互兑。"""
@@ -381,17 +375,17 @@ class ETFPortfolioBacktest(BTE):
                 try:
                     self._swap(code, res, delta, date, nav_of(code))
                     if self.verbose:
-                        print(f"  卖 {code}({name}) 回吐 CNY{delta:,.0f} -> 资金池 {res}")
+                        logger.info(f"  卖 {code}({name}) 回吐 CNY{delta:,.0f} -> 资金池 {res}")
                 except Exception as e:
-                    print(f"  错误: 卖出 {code} 失败: {e}")
+                    logger.error(f"卖出 {code} 失败: {e}")
         for code, name, delta in triggers:
             if delta < 0:
                 try:
                     self._swap(res, code, -delta, date, res_nav)
                     if self.verbose:
-                        print(f"  资金池 {res} -> 买 {code}({name}) 补仓 CNY{-delta:,.0f}")
+                        logger.info(f"  资金池 {res} -> 买 {code}({name}) 补仓 CNY{-delta:,.0f}")
                 except Exception as e:
-                    print(f"  错误: 买入 {code} 失败: {e}")
+                    logger.error(f"买入 {code} 失败: {e}")
 
     def _swap(self, from_code, to_code, value, date, from_nav):
         """卖出 value(净额) 的 from_code，同步买入 value 的 to_code；卖段含 redeem_fee 赎回费。"""

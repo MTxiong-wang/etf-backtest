@@ -144,6 +144,7 @@ etf_backtest/
 4. 输出产物在 `output/`（不入库）；`configs/` 配置入库。
 5. 短区间 + 宽阈值时可能不触发再平衡，同一组合各阈值结果会相同——属正常，跑完整区间才会分化。
 6. **区间起点必须 ≥ 组合里最晚上市的标的**（如含恒生科技 SH513180 则不能早于 2021-05-25）。否则 csv 落盘会返回标的上市后的数据，导致建仓数据穿越、持仓比例失真、band 规则每周误触发爆炸调仓。`sweep.json` 的 `start` 已据此设为 2021-05-25。
+7. **日志**：`import etf_backtest` 自动配置 UTF-8 stdout + 时间戳格式（`%(asctime)s [%(levelname)s] %(message)s`），解决 Windows GBK 中文乱码。代码用 `logging` 模块（`logger.info`/`warning`/`error`），表格输出仍用 `print`。
 
 ## 许可证
 

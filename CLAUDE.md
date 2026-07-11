@@ -14,7 +14,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 # 安装（在项目根目录下，editable 模式让 examples/test 脚本能 import etf_backtest）
 pip install -e .
 
-# 生产入口：跑 run_portfolio.py 里的真实 17 标的组合（带状再平衡 + 债券资金池）
+# 生产入口：跑 run_portfolio.py（持仓读 configs/portfolios/balanced.json，默认参数读 configs/sweep.json）
 # 参数顺序: start end band capital step
 python run_portfolio.py                       # 默认 2021-07-01 2026-07-09 0.5 100000 5
 python run_portfolio.py 2021-07-01 2026-07-09 0.25 100000 5
@@ -47,7 +47,7 @@ python examples.py
 - `run_portfolio.py` — 真实组合的 CLI 入口与指标计算（见下文“两套报告路径”）。通用回测入口 `run_config(config, ...)` 也在这里。
 - `run_sweep.py` — 配置化多参数扫描入口（见下文“配置化多参数扫描”）。
 - `report.py` — `generate_report_html`：把扫描结果渲染成自包含 HTML 报告（替代 PNG）。
-- `__init__.py` — 包入口：`import etf_backtest` 即调用 `configure_cache()`，把 xalpha `get_daily` 切到 **csv 后端**，行情落盘 `data/market_cache/`（详见下文“行情缓存（csv 落盘）”）。所有入口（`run_portfolio.py` / `run_sweep.py` / `examples.py`）都 `import etf_backtest`，故自动生效，无需各入口单独配置。
+- `__init__.py` — 包入口：`import etf_backtest` 即调用 `configure_cache()`（行情 csv 落盘，见下文）+ `setup_logging()`（**日志规范化**：UTF-8 stdout + 时间戳格式 `%(asctime)s [%(levelname)s] %(message)s`，解决 Windows GBK 中文乱码）。所有入口都 `import etf_backtest`，故自动生效。
 - `algos.py` — 策略算法模块（借鉴 bt.Algo）：`Algo` 基类 + `AlgoRebalance` / `AlgoRecord`，包装 `core.py` 的 `_check` / `_execute` / `_record`。`ETFPortfolioBacktest(algo_stack=...)` 可传自定义 Algo 栈；默认 `[AlgoRebalance, AlgoRecord]` = 重构前行为（详见下文“Algo 模块化”）。
 
 ### 回测循环（`core.py`）
@@ -94,7 +94,7 @@ python examples.py
 把「持仓占比 × 调仓阈值」做成配置驱动的网格对比。配置全部是 JSON（`.gitignore` 已加 `!configs/` 例外使其入库）：
 
 - `configs/portfolios/*.json` — 每个文件一个组合：`{name, etf_list:[{code,name,target_ratio}], reservoir_code}`（权重会被自动归一化，不必和为 1）。内置 `conservative` / `balanced` / `aggressive` 三档，同用 17 标的池。
-- `configs/sweep.json` — 扫描网格 + 运行参数：`start/end/initial_capital/monitor_step/rf/benchmark`，以及 `band_ratios` 与 `absolute_thresholds` 两个待扫阈值列表。
+- `configs/sweep.json` — 扫描网格 + 运行参数：`start/end/initial_capital/monitor_step/rf/redeem_fee/buy_fee/benchmark`，以及 `band_ratios` 与 `absolute_thresholds` 两个待扫阈值列表。`run_portfolio.py` 的默认参数（区间/资金/步长/rf/成本）也从此文件读，sys.argv 可覆盖。
 
 `run_sweep.py` 做 `组合 × (band_ratios + absolute_thresholds)` 笛卡尔积回测，逐个 `run_config`（共享同一个 `info_cache`），每个跑 `compute_metrics`。输出（**CSV 数据 + 自包含 HTML 报告，不再出 PNG**）：
 

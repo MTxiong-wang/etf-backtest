@@ -25,7 +25,9 @@ matplotlib.use("Agg")
 # 让 `import etf_backtest` 在任意 cwd 下可用
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from etf_backtest.config import ETFPortfolioConfig
+import logging
+
+from etf_backtest.config import ETFPortfolioConfig, load_portfolio_file, load_sweep_file, _DEFAULT_RESERVOIR
 from etf_backtest.core import ETFPortfolioBacktest
 from etf_backtest.utils import (
     plot_portfolio_value,
@@ -34,27 +36,24 @@ from etf_backtest.utils import (
     compare_strategies,
 )
 
+logger = logging.getLogger(__name__)
 
-# 目标持仓（权重和为 1.0）
-PORTFOLIO = [
-    {"code": "SH510300", "name": "沪深300ETF",       "target_ratio": 0.072},  # 含并入的A500 2.4%
-    {"code": "SH510050", "name": "上证50ETF",         "target_ratio": 0.024},
-    {"code": "SH588080", "name": "科创50ETF",         "target_ratio": 0.024},
-    {"code": "SH512890", "name": "红利低波ETF",       "target_ratio": 0.100},  # 替代563020
-    {"code": "SZ159920", "name": "恒生ETF",           "target_ratio": 0.035},
-    {"code": "SH513180", "name": "恒生科技ETF",       "target_ratio": 0.035},
-    {"code": "SH510500", "name": "中证500ETF",        "target_ratio": 0.035},
-    {"code": "SH512100", "name": "中证1000ETF",       "target_ratio": 0.035},
-    {"code": "SZ159941", "name": "纳指100ETF",        "target_ratio": 0.070},
-    {"code": "SH513500", "name": "标普500ETF",        "target_ratio": 0.070},
-    {"code": "SH518880", "name": "黄金ETF",           "target_ratio": 0.050},
-    {"code": "SH513030", "name": "德国DAX-ETF",       "target_ratio": 0.025},
-    {"code": "SH513880", "name": "日经225-ETF",       "target_ratio": 0.025},
-    {"code": "F006484",  "name": "广发国开债1-3y",    "target_ratio": 0.150},  # 真实净值
-    {"code": "F003376",  "name": "广发国开债7-10y",   "target_ratio": 0.100},  # 真实净值
-    {"code": "F004419",  "name": "美元债QDII",        "target_ratio": 0.050},  # 真实净值
-    {"code": "SH511990", "name": "货币ETF(现金)",     "target_ratio": 0.100},
-]
+
+# 默认组合/扫描配置路径（持仓不再硬编码，改读 configs/portfolios/balanced.json）
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_DEFAULT_PORTFOLIO_FILE = os.path.join(_HERE, "configs", "portfolios", "balanced.json")
+_DEFAULT_SWEEP_FILE = os.path.join(_HERE, "configs", "sweep.json")
+
+
+def _load_default_portfolio():
+    """读取默认组合（balanced.json），返回 (etf_list, reservoir_code)。"""
+    p = load_portfolio_file(_DEFAULT_PORTFOLIO_FILE)
+    return p["etf_list"], p.get("reservoir_code") or _DEFAULT_RESERVOIR
+
+
+def _load_default_sweep():
+    """读取默认扫描配置（sweep.json）作 main 的参数默认来源。"""
+    return load_sweep_file(_DEFAULT_SWEEP_FILE)
 
 
 def run_config(config, verbose=False, monitor_step=5, info_cache=None):
@@ -70,18 +69,22 @@ def run_config(config, verbose=False, monitor_step=5, info_cache=None):
     return bt
 
 
-def run_one(start, end, band_ratio, initial_capital, verbose=False, monitor_step=5,
-            reservoir="F006484", info_cache=None):
+def run_one(start, end, band_ratio, initial_capital, etf_list, reservoir,
+            verbose=False, monitor_step=5, info_cache=None,
+            redeem_fee=0.005, buy_fee=0.0):
     """带状相对再平衡：band_ratio=0.5 表示±50%带宽；资金池 reservoir 吸收差额。
-    band_ratio=10 等极大值 => 永不触发 => 买入持有。"""
+    band_ratio=10 等极大值 => 永不触发 => 买入持有。持仓 etf_list/reservoir 由调用方
+    传入（main 从 configs/portfolios/*.json 读，不再用模块级 PORTFOLIO）。"""
     cfg = ETFPortfolioConfig(
-        etf_list=[dict(x) for x in PORTFOLIO],
+        etf_list=[dict(x) for x in etf_list],
         start_date=start,
         end_date=end,
         initial_capital=initial_capital,
         rebalance_mode="band",
         band_ratio=band_ratio,
         reservoir_code=reservoir,
+        redeem_fee=redeem_fee,
+        buy_fee=buy_fee,
     )
     return run_config(cfg, verbose=verbose, monitor_step=monitor_step, info_cache=info_cache)
 
@@ -100,7 +103,8 @@ def save_history_csv(bt, path):
 
 
 def cfg_codes():
-    return [x["code"] for x in PORTFOLIO]
+    etf_list, _ = _load_default_portfolio()
+    return [x["code"] for x in etf_list]
 
 
 def compute_metrics(history, initial_capital, rf=0.02):
@@ -207,25 +211,32 @@ def print_comparison_table(rows):
 
 
 def main():
-    start = sys.argv[1] if len(sys.argv) > 1 else "2021-07-01"
-    end = sys.argv[2] if len(sys.argv) > 2 else "2026-07-09"
+    # 默认参数从 configs/sweep.json + configs/portfolios/balanced.json 读，sys.argv 可覆盖
+    sweep = _load_default_sweep()
+    etf_list, reservoir = _load_default_portfolio()
+    start = sys.argv[1] if len(sys.argv) > 1 else sweep["start"]
+    end = sys.argv[2] if len(sys.argv) > 2 else sweep["end"]
     band = float(sys.argv[3]) if len(sys.argv) > 3 else 0.5    # 相对带宽，0.5=±50%
-    capital = float(sys.argv[4]) if len(sys.argv) > 4 else 100000
-    step = int(sys.argv[5]) if len(sys.argv) > 5 else 5        # 监控步长(交易日)，1=每日
+    capital = float(sys.argv[4]) if len(sys.argv) > 4 else sweep["initial_capital"]
+    step = int(sys.argv[5]) if len(sys.argv) > 5 else int(sweep.get("monitor_step", 5))
+    rf = float(sweep.get("rf", 0.02))
+    redeem_fee = float(sweep.get("redeem_fee", 0.005))
+    buy_fee = float(sweep.get("buy_fee", 0.0))
 
-    out_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output")
+    out_dir = os.path.join(_HERE, "output")
     os.makedirs(out_dir, exist_ok=True)
 
     import time
-    print(f"回测区间 {start} ~ {end} | 带状再平衡 带宽±{band:.0%} | 资金池 F006484 | 初始资金 {capital:,.0f}")
-    print("正在获取数据并回测，请稍候 ...")
+    logger.info(f"回测区间 {start} ~ {end} | 带状再平衡 带宽±{band:.0%} | 资金池 {reservoir} | 初始资金 {capital:,.0f}")
+    logger.info("正在获取数据并回测，请稍候 ...")
 
     # 主回测：带状相对再平衡
     t0 = time.time()
-    bt = run_one(start, end, band, capital, monitor_step=step)
-    print(f"主回测完成，用时 {time.time()-t0:.0f}s\n")
-    main_metrics = compute_metrics(bt.portfolio_history, capital)
-    print_report_block(f"主策略：带状±{band:.0%}再平衡（资金池F006484）",
+    bt = run_one(start, end, band, capital, etf_list, reservoir,
+                 monitor_step=step, redeem_fee=redeem_fee, buy_fee=buy_fee)
+    logger.info(f"主回测完成，用时 {time.time()-t0:.0f}s")
+    main_metrics = compute_metrics(bt.portfolio_history, capital, rf=rf)
+    print_report_block(f"主策略：带状±{band:.0%}再平衡（资金池{reservoir}）",
                        main_metrics, bt.rebalance_count, capital)
 
     # 保存净值历史与图表
@@ -237,41 +248,46 @@ def main():
     plot_returns_distribution(bt.portfolio_history,
                               save_path=os.path.join(out_dir, "03_returns_distribution.png"))
 
-    # 策略对比：带宽±50% / 带宽±25% / 买入持有 / 沪深300基准
-    print("正在生成策略对比 ...")
+    # 策略对比：带宽±50% / 带宽±25% / 买入持有 / 基准
+    logger.info("正在生成策略对比 ...")
     reports, labels, rows = [], [], []
     reports.append(make_report(main_metrics, bt.rebalance_count)); labels.append(f"带宽±{band:.0%}")
     rows.append((f"带宽±{band:.0%}", main_metrics, bt.rebalance_count))
     if abs(band - 0.25) > 1e-6:
-        bt2 = run_one(start, end, 0.25, capital, monitor_step=step)
-        m2 = compute_metrics(bt2.portfolio_history, capital)
+        bt2 = run_one(start, end, 0.25, capital, etf_list, reservoir,
+                      monitor_step=step, redeem_fee=redeem_fee, buy_fee=buy_fee)
+        m2 = compute_metrics(bt2.portfolio_history, capital, rf=rf)
         reports.append(make_report(m2, bt2.rebalance_count)); labels.append("带宽±25%")
         rows.append(("带宽±25%", m2, bt2.rebalance_count))
-    bt3 = run_one(start, end, 10.0, capital, monitor_step=step)  # 极宽带 => 永不触发 => 买入持有
-    m3 = compute_metrics(bt3.portfolio_history, capital)
+    bt3 = run_one(start, end, 10.0, capital, etf_list, reservoir,
+                  monitor_step=step, redeem_fee=redeem_fee, buy_fee=buy_fee)  # 极宽带 => 买入持有
+    m3 = compute_metrics(bt3.portfolio_history, capital, rf=rf)
     reports.append(make_report(m3, bt3.rebalance_count)); labels.append("买入持有")
     rows.append(("买入持有", m3, bt3.rebalance_count))
-    # 基准：沪深300 单标的 100%
+    # 基准：单标的 100%（从 sweep.json 的 benchmark 读）
+    bench = sweep["benchmark"]
     bench_cfg = ETFPortfolioConfig(
-        etf_list=[{"code": "SH510300", "name": "沪深300ETF", "target_ratio": 1.0}],
+        etf_list=[{"code": bench["code"], "name": bench["name"], "target_ratio": 1.0}],
         start_date=start, end_date=end, initial_capital=capital, rebalance_threshold=1.0,
+        redeem_fee=redeem_fee, buy_fee=buy_fee,
     )
     btb = ETFPortfolioBacktest(bench_cfg, verbose=False, monitor_step=step)
     btb.prepare(); btb.backtest()
-    mb = compute_metrics(btb.portfolio_history, capital)
-    reports.append(make_report(mb, btb.rebalance_count)); labels.append("沪深300基准")
-    rows.append(("沪深300基准", mb, btb.rebalance_count))
+    mb = compute_metrics(btb.portfolio_history, capital, rf=rf)
+    reports.append(make_report(mb, btb.rebalance_count)); labels.append(bench["name"] + "基准")
+    rows.append((bench["name"] + "基准", mb, btb.rebalance_count))
 
     compare_strategies(reports, labels, save_path=os.path.join(out_dir, "04_compare_strategies.png"))
     print_comparison_table(rows)
 
     # 资金池期末实际权重（观察其作为缓冲的漂移）
     final_status = bt.portfolio_history[-1] if bt.portfolio_history else {}
-    res_val = final_status.get("F006484", {})
+    res_val = final_status.get(reservoir, {})
     if isinstance(res_val, dict):
-        print(f"\n资金池 F006484(短期国开债) 期末实际权重: {res_val.get('ratio', 0):.2%} (目标 15.00%)")
+        target = bt.config.portfolio_dict.get(reservoir, 0)
+        logger.info(f"资金池 {reservoir} 期末实际权重: {res_val.get('ratio', 0):.2%} (目标 {target:.2%})")
 
-    print(f"\n所有结果已保存到: {out_dir}")
+    logger.info(f"所有结果已保存到: {out_dir}")
 
 
 if __name__ == "__main__":

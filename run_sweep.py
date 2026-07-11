@@ -28,9 +28,13 @@ import time
 # 让 `import etf_backtest` 与 `from run_portfolio import ...` 在任意 cwd 下可用
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import logging
+
 from etf_backtest.config import load_portfolio_file, load_sweep_file, build_config
 from etf_backtest.report import generate_report_html
 from run_portfolio import run_config, compute_metrics
+
+logger = logging.getLogger(__name__)
 
 
 CSV_COLUMNS = [
@@ -134,7 +138,7 @@ def main():
     # 加载所有组合（按文件名排序，保证行列顺序稳定）
     portfolio_files = sorted(glob.glob(os.path.join(portfolios_dir, "*.json")))
     if not portfolio_files:
-        print(f"未在 {portfolios_dir} 找到组合配置 (*.json)")
+        logger.warning(f"未在 {portfolios_dir} 找到组合配置 (*.json)")
         sys.exit(1)
     portfolios = [load_portfolio_file(p) for p in portfolio_files]
 
@@ -152,11 +156,9 @@ def main():
     grid = build_grid(sweep, portfolios)
     n_band = len(sweep.get("band_ratios", []))
     n_abs = len(sweep.get("absolute_thresholds", []))
-    print(f"扫描网格: {len(portfolios)} 组合 × ({n_band} band + {n_abs} absolute) "
-          f"= {len(grid)} 回测 + 1 基准")
-    print(f"区间 {sweep['start']} ~ {sweep['end']} | monitor_step={monitor_step} | "
-          f"rf={rf} | 初始资金 {capital:,.0f}")
-    print("正在抓取数据并回测，首轮较慢（之后命中缓存）...\n")
+    logger.info(f"扫描网格: {len(portfolios)} 组合 × ({n_band} band + {n_abs} absolute) = {len(grid)} 回测 + 1 基准")
+    logger.info(f"区间 {sweep['start']} ~ {sweep['end']} | monitor_step={monitor_step} | rf={rf} | 初始资金 {capital:,.0f}")
+    logger.info("正在抓取数据并回测，首轮较慢（之后命中缓存）...")
 
     info_cache = {}  # 跨所有回测共享的标的数据缓存
     rows = []
@@ -169,10 +171,7 @@ def main():
         m = compute_metrics(bt.portfolio_history, capital, rf=rf)
         rows.append(metrics_to_row(pname, mode, thr, m, bt.rebalance_count))
         per_strategy[(pname, mode, thr)] = capture_holding_profit(bt, sweep["end"], summary_to_canon)
-        print(f"  [{i}/{len(grid)}] {pname:<13}{mode}{fmt_threshold(mode, thr):>6}  "
-              f"年化={m.get('annualized', 0):.2%}  夏普={m.get('sharpe', 0):.2f}  "
-              f"回撤={m.get('max_drawdown', 0):.2%}  调仓={bt.rebalance_count}  "
-              f"({time.time() - ts:.0f}s)")
+        logger.info(f"  [{i}/{len(grid)}] {pname:<13}{mode}{fmt_threshold(mode, thr):>6}  年化={m.get('annualized', 0):.2%}  夏普={m.get('sharpe', 0):.2f}  回撤={m.get('max_drawdown', 0):.2%}  调仓={bt.rebalance_count}  ({time.time() - ts:.0f}s)")
 
     # 基准：单标的买入持有
     bt_b = run_benchmark(sweep, monitor_step, info_cache)
@@ -180,8 +179,8 @@ def main():
     bench_label = f"基准({sweep['benchmark']['name']})"
     rows.append(metrics_to_row(bench_label, "buy_hold", 0.0, mb, bt_b.rebalance_count))
     rows[-1]["threshold"] = "-"
-    print(f"\n{bench_label}: 年化={mb.get('annualized', 0):.2%}  夏普={mb.get('sharpe', 0):.2f}")
-    print(f"扫描完成，用时 {time.time() - t0:.0f}s（含基准）\n")
+    logger.info(f"{bench_label}: 年化={mb.get('annualized', 0):.2%}  夏普={mb.get('sharpe', 0):.2f}")
+    logger.info(f"扫描完成，用时 {time.time() - t0:.0f}s（含基准）")
 
     # 输出
     out_dir = os.path.join(here, "output")
@@ -190,7 +189,7 @@ def main():
     import pandas as pd
     csv_path = os.path.join(out_dir, "sweep_comparison.csv")
     pd.DataFrame(rows, columns=CSV_COLUMNS).to_csv(csv_path, index=False, encoding="utf-8-sig")
-    print(f"明细已保存至: {csv_path}")
+    logger.info(f"明细已保存至: {csv_path}")
 
     band_thrs = sweep.get("band_ratios", [])
     abs_thrs = sweep.get("absolute_thresholds", [])
@@ -213,7 +212,7 @@ def main():
         "portfolio", "mode", "threshold", "holding", "holding_name",
         "profit", "profit_share_pct", "return_pct", "final_value", "cost",
     ]).to_csv(holding_csv, index=False, encoding="utf-8-sig")
-    print(f"品种盈利明细已保存至: {holding_csv}")
+    logger.info(f"品种盈利明细已保存至: {holding_csv}")
 
     # —— HTML 报告（自包含，替代 PNG；品种矩阵可切换 收益率/盈利 视图）——
     report_path = os.path.join(out_dir, "report.html")
@@ -231,7 +230,7 @@ def main():
         save_path=report_path,
     )
 
-    print(f"\n所有结果已保存到: {out_dir}")
+    logger.info(f"所有结果已保存到: {out_dir}")
 
 
 if __name__ == "__main__":
