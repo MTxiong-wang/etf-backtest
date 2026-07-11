@@ -13,7 +13,6 @@ from xalpha.universal import vinfo, get_daily
 from xalpha.cons import opendate_set
 
 from .config import ETFPortfolioConfig
-from .data import ETFDataManager
 
 
 class ETFPortfolioBacktest(BTE):
@@ -30,7 +29,6 @@ class ETFPortfolioBacktest(BTE):
 
     Attributes:
         config: ETFPortfolioConfig配置对象
-        data_manager: ETFDataManager数据管理器
         trades: ETF交易记录字典 {code: trade对象}
         rebalance_count: 调仓次数统计
     """
@@ -38,7 +36,6 @@ class ETFPortfolioBacktest(BTE):
     def __init__(
         self,
         config: ETFPortfolioConfig,
-        data_manager: Optional[ETFDataManager] = None,
         verbose: bool = True,
         monitor_step: int = 1,
         info_cache: Optional[Dict] = None
@@ -48,7 +45,6 @@ class ETFPortfolioBacktest(BTE):
 
         Args:
             config: ETF投资组合配置
-            data_manager: 数据管理器，可选，默认创建新的
             verbose: 是否打印详细信息
             monitor_step: 每隔多少个交易日做一次再平衡检查与净值记录（1=每日）。
                 因 summary() 较慢，长区间可用 5（周度）显著提速，对阈值再平衡结果影响很小。
@@ -60,12 +56,6 @@ class ETFPortfolioBacktest(BTE):
         self.verbose = verbose
         self.monitor_step = max(1, int(monitor_step))
         self._info_cache = info_cache
-
-        # 创建数据管理器
-        if data_manager is None:
-            self.data_manager = ETFDataManager()
-        else:
-            self.data_manager = data_manager
 
         # 初始化父类
         super().__init__(
@@ -88,17 +78,6 @@ class ETFPortfolioBacktest(BTE):
         for etf_config in self.config.etf_list:
             code = etf_config['code']
             try:
-                # 场内标的（SH/SZ）：用 data_manager 取行情并做覆盖检查
-                # 场外基金（F/M）：由 get_info -> fundinfo 取真实净值，不走 data_manager
-                if not code.startswith(('F', 'M')):
-                    data = self.data_manager.fetch_etf_data(
-                        code,
-                        self.config.start_date,
-                        self.config.end_date
-                    )
-                    if data.empty:
-                        print(f"警告: {code} 数据为空，请检查代码是否正确")
-
                 # 通过 BTE.get_info 按代码前缀自动分发：
                 #   SH/SZ -> vinfo（ETF/股票，雪球前复权行情）
                 #   F     -> fundinfo（场外基金真实净值，含分红）

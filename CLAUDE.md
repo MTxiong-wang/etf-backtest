@@ -32,7 +32,7 @@ python examples.py
 **本仓库没有 pytest 套件**，也没有正式测试框架。`test_basic.py` / `test_backtest.py` / `run_test.py` 是带 `print` 的冒烟脚本，且：
 
 - 脚本里硬编码了 `sys.path.insert(0, 'D:/Codes')`，换机器/路径需手改；
-- 依赖联网拉取真实行情数据，离线跑不动；
+- 首次需联网拉取行情并落盘到 `data/market_cache/`（见下文“行情缓存（csv 落盘）”），之后离线可跑；
 - `test_*.py` 被 `.gitignore` 忽略（见下）。
 
 直接当脚本运行即可：`python test_basic.py`、`python test_backtest.py`、`python run_test.py`。不要假设 `pytest` 能收集它们。
@@ -42,12 +42,12 @@ python examples.py
 ### 模块分工
 
 - `config.py` — `ETFPortfolioConfig`：校验 + 归一化比例，持有 `portfolio_dict`（code→target_ratio）。`validate_etf_code` 限定代码格式为 `^(SH|SZ|F|M)\d{6}$`。另有 JSON 加载器 `load_portfolio_file` / `load_sweep_file` / `build_config`（不改类，仅把 JSON 映射成 `ETFPortfolioConfig`）。
-- `data.py` — `ETFDataManager`：仅负责 **SH/SZ 场内标的** 的行情获取与缓存（`xalpha.universal.get_daily`）。F/M 场外基金不走这里。
-- `core.py` — `ETFPortfolioBacktest(BTE)`：回测引擎，子类化 `xalpha.backtest.BTE`。`__init__` 支持传入共享 `info_cache`（见下文“F 类基金不缓存”）。
+- `core.py` — `ETFPortfolioBacktest(BTE)`：回测引擎，子类化 `xalpha.backtest.BTE`。`__init__` 支持传入共享 `info_cache`（见下文“进程内 info 复用”）。
 - `utils.py` — 绘图（`plot_portfolio_value` 等净值/配置图、`compare_strategies`）与 `format_report`；顶部设中文字体。另有 `plot_sweep_heatmap` / `plot_holding_heatmap`（旧版 PNG 热力图，已被 HTML 报告取代，保留备用）。
 - `run_portfolio.py` — 真实组合的 CLI 入口与指标计算（见下文“两套报告路径”）。通用回测入口 `run_config(config, ...)` 也在这里。
 - `run_sweep.py` — 配置化多参数扫描入口（见下文“配置化多参数扫描”）。
 - `report.py` — `generate_report_html`：把扫描结果渲染成自包含 HTML 报告（替代 PNG）。
+- `__init__.py` — 包入口：`import etf_backtest` 即调用 `configure_cache()`，把 xalpha `get_daily` 切到 **csv 后端**，行情落盘 `data/market_cache/`（详见下文“行情缓存（csv 落盘）”）。所有入口（`run_portfolio.py` / `run_sweep.py` / `examples.py`）都 `import etf_backtest`，故自动生效，无需各入口单独配置。
 
 ### 回测循环（`core.py`）
 
@@ -64,13 +64,13 @@ python examples.py
 
 ### 代码前缀决定数据来源
 
-`BTE.get_info` 按代码前缀自动分发，这是 F/M 标的不走 `data.py` 的原因：
+`BTE.get_info` 按代码前缀自动分发（行情统一来自 `data/market_cache/` 的 csv 落盘）：
 
 - `SH/SZ` → `vinfo`（雪球前复权行情）
 - `F` → `fundinfo`（场外基金真实净值，含分红）
 - `M` → `mfundinfo`（货币基金）
 
-`prepare()` 对 SH/SZ 会先用 `data_manager` 取数据并做空值检查，F/M 直接交给 `get_info`。
+`prepare()` 对每个标的调 `get_info`（按前缀分发到 `vinfo`/`fundinfo`/`mfundinfo`），行情统一来自 `data/market_cache/` 的 csv 落盘。
 
 ### 两套报告路径（最关键的非显然点）
 
@@ -99,9 +99,10 @@ python examples.py
 
 ## 注意事项与陷阱
 
-- **F 类场外基金不缓存（性能关键）**：xalpha 默认 memory 后端只缓存 `vinfo`（SH/SZ），**`fundinfo`（F 码）每次构造都重新请求东方财富（每码 2 次 HTTP）**。多次回测同一些 F 码会重复抓取。解法：`ETFPortfolioBacktest(..., info_cache={})` 传入共享字典，`prepare()` 会首轮抓取后复用 info 对象（跨实例共享安全——info 在回测中只读）。`run_sweep.py` 已这么用，所以第 2 个组合起大幅提速。
+- **进程内 info 复用（`info_cache`）**：F/M 类的 csv 落盘已由 `configure_cache()` 自动覆盖——`basicinfo` 在 `info.py:333-342` 对接 `set_backend`，与 SH/SZ 一起落盘（文件名 `INFO-<6位码>.csv`，实测见下条）。即便落盘，`fundinfo` 每次构造仍要读盘反序列化 + `update()` 增量联网核对最新净值，单进程内多次构造同一 F 码仍是浪费。多个回测实例复用同一批标的的解法：`ETFPortfolioBacktest(..., info_cache={})` 传共享字典，`prepare()` 首轮构造后跨实例复用同一 info 对象（回测中只读，共享安全）。`run_sweep.py` 已这么用，第 2 个组合起大幅提速。
 - **买入金额必须 round 到分**：xalpha 在 `trade.py` 把买入金额的小数部分当作“自定义申购费”二进制编码（`feelabel = frac(100*value)`），当 `100×金额` 的小数部分落在 ~0.45–0.5 时会算出负费用并断言 `自定义申购费必须为正值` 而崩溃。`core.py` 所有 `buy` 调用（`_initial_purchase` / `_execute_rebalance` / `_swap`）都已 `round(amount, 2)`。**新增任何 buy 调用务必先 round 到分**，否则特定权重×资金组合会随机崩。原 `PORTFOLIO` 权重恰好在 100000 资金下产生整元金额才没踩坑。
-- **联网与缓存**：首次运行从在线数据源（雪球/东方财富）下载行情，`data/cache/<code>.csv`（磁盘，仅 SH/SZ）+ 进程内 dict。`.gitignore` 忽略 `data/cache/`、`output/`、`*.csv`、`*.json`（已加 `!configs/` 例外）、`*.log`、`test_*.py`。
+- **行情缓存（csv 落盘，全标的覆盖）**：`etf_backtest/__init__.py` 的 `configure_cache()` 在 `import etf_backtest` 时调 `xa.set_backend(backend="csv", path="data/market_cache")`，**同时**覆盖所有标的：场内 `<前缀码>.csv`（如 `SH510300.csv`，`vinfo`→`get_daily`）、场外基金 `INFO-<6位码>.csv`（如 `INFO-006484.csv`，`fundinfo`/`mfundinfo`→`basicinfo` fetch/save，`info.py:333-342` 自动对接 `set_backend`）。首次抓某标的即写盘其全部可获取历史，之后请求纯读盘过滤（场内，实测跨进程 0.016s 不联网）或读盘+增量核对（场外，实测二次构造 0.02s），不再全量联网。**这套才是回测真正读取的行情来源**（早期 `ETFDataManager` + `data/cache/` 那套死缓存已整体移除，`core.prepare()` 不再有 `data_manager` 空值告警）。`.gitignore` 已忽略 `output/`、`*.csv`、`*.json`（`!configs/` 例外）、`*.log`、`test_*.py`。
+- **区间起点受标的上市日约束（关键陷阱）**：sweep/run 区间起点必须 ≥ 组合里最晚上市的标的。雪球对未上市标的返回 EMPTY，但 csv 落盘 + `BTE.get_info` 的 `vinfo(start=self.start-180d)` 会返回标的上市后的数据，导致**建仓日用了上市后净值（数据穿越）**、持仓比例失真（如某标的在 0.08%~15% 间跳变）、band 规则每周误触发爆炸调仓（单回测数百次调仓 + 内存累积 OOM，且块缓冲让崩溃 output 0 字节无日志）。实测组合里最晚的是恒生科技 SH513180（雪球最早 2021-05-25）、科创50 SH588080（2020-11-16），故 `sweep.json` 的 `start` 固定为 2021-05-25。换组合时按最晚上市标的调整起点；要跑更长历史只能替换为更早的近似标的。
 - **matplotlib 后端**：`run_portfolio.py` 顶部 `matplotlib.use("Agg")`（无界面，存图）；`run_sweep.py` 已不依赖 matplotlib（只出 CSV + HTML）。但 `examples.py` 和 `utils.py` 默认走交互式 `plt.show()`，在无显示环境（服务器/SSH）会卡住或报错，跑这类脚本前需自行设 `Agg`。
 - **中文字体**：`utils.py` 设了 `SimHei / Microsoft YaHei / Arial Unicode MS`，图表中文标签依赖系统装了这些字体，否则中文会变方块。
 - **`run_portfolio.py` 的 `PORTFOLIO`** 是该入口的默认持仓（现已被 `configs/portfolios/balanced.json` 镜像），docstring 记录了若干替代/合并决策（如红利 SH563020 上市晚用 SH512890 替代、中证 A500 指数取不到故权重并入沪深300）。

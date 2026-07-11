@@ -10,7 +10,7 @@
 - **品种级盈利拆解**：每个策略里每个标的的盈利 / 收益率 / 占比 / 市值 / 成本
 - **自包含 HTML 报告**（替代图片）：策略总览 + 排名 + 品种盈利矩阵（一键切换「收益率%」↔「盈利万元」）+ 各组合利润发动机
 - 场内 ETF（SH/SZ）+ 场外基金（F，真实净值含分红）+ 货币基金（M）混合回测
-- 多次回测共享行情缓存，网格扫描时第 2 个组合起大幅提速
+- 行情 csv 落盘到 `data/market_cache/`（场内 + 场外基金全覆盖），首次抓取后离线复用；多次回测共享 info 对象，网格扫描第 2 个组合起大幅提速
 
 ## 安装
 
@@ -120,8 +120,8 @@ python run_portfolio.py 2021-07-01 2026-07-09 0.5 100000 5
 ```
 etf_backtest/
 ├── config.py          # 配置类 + JSON 加载器（load_portfolio_file / load_sweep_file / build_config）
+├── __init__.py        # 包入口：configure_cache() 把 xalpha get_daily 切 csv 后端，行情落盘 data/market_cache/
 ├── core.py            # 回测引擎（ETFPortfolioBacktest，子类化 xalpha BTE）
-├── data.py            # 场内标的行情获取 / 缓存
 ├── utils.py           # 净值 / 配置绘图、策略对比
 ├── report.py          # HTML 报告生成器（generate_report_html）
 ├── run_portfolio.py   # 单组合生产入口 + 指标计算（compute_metrics）
@@ -135,11 +135,12 @@ etf_backtest/
 
 ## 注意事项
 
-1. 首次运行需联网，从雪球（SH/SZ）/ 东方财富（F）下载行情。
+1. 首次运行需联网从雪球（SH/SZ）/东方财富（F）下载行情并落盘到 `data/market_cache/`，之后离线复用（场内 `<前缀码>.csv`、场外 `INFO-<6位码>.csv`）。
 2. 回测只在 A 股交易日运行；调仓估算 0.5% 赎回费（买入无费）。
 3. `monitor_step` 越大越快但对阈值再平衡结果影响很小，长区间建议 5。
 4. 输出产物在 `output/`（不入库）；`configs/` 配置入库。
 5. 短区间 + 宽阈值时可能不触发再平衡，同一组合各阈值结果会相同——属正常，跑完整区间才会分化。
+6. **区间起点必须 ≥ 组合里最晚上市的标的**（如含恒生科技 SH513180 则不能早于 2021-05-25）。否则 csv 落盘会返回标的上市后的数据，导致建仓数据穿越、持仓比例失真、band 规则每周误触发爆炸调仓。`sweep.json` 的 `start` 已据此设为 2021-05-25。
 
 ## 许可证
 
