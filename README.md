@@ -108,12 +108,14 @@ python run_portfolio.py 2021-07-01 2026-07-09 0.5 100000 5
 | `rebalance_threshold` | absolute 模式偏离阈值 | 0.02 |
 | `band_ratio` | band 模式相对带宽（如 0.5 = ±50%） | 0.5 |
 | `reservoir_code` | band 模式资金池代码 | F006484 |
+| `redeem_fee` | 卖出赎回费率 | 0.005 |
+| `buy_fee` | 买入费率（0=免佣） | 0.0 |
 | `monitor_step` | 每隔 N 个交易日检查 / 记录（长区间用 5 提速） | 1 |
 | `rf` | 夏普比率的无风险年化利率 | 0.02 |
 
 ## 回测指标
 
-期末资产、总收益率、年化收益、最大回撤、年化波动率、夏普比率（无风险利率 `rf`）、卡玛比率、调仓次数。品种级另有：盈利（= 期末市值 − 持有成本，已含分红）、盈利占比、收益率。
+期末资产、总收益率、年化收益、最大回撤、年化波动率、夏普比率（无风险利率 `rf`）、卡玛比率、调仓次数，以及扩展风险指标：索提诺比率、日 VaR/CVaR(95%)、胜率、盈亏比。品种级另有：盈利（= 期末市值 − 持有成本，已含分红）、盈利占比、收益率。
 
 ## 项目结构
 
@@ -122,6 +124,7 @@ etf_backtest/
 ├── config.py          # 配置类 + JSON 加载器（load_portfolio_file / load_sweep_file / build_config）
 ├── __init__.py        # 包入口：configure_cache() 把 xalpha get_daily 切 csv 后端，行情落盘 data/market_cache/
 ├── core.py            # 回测引擎（ETFPortfolioBacktest，子类化 xalpha BTE）
+├── algos.py           # 策略算法模块（Algo 基类 + AlgoRebalance/AlgoRecord，可组合 algo_stack）
 ├── utils.py           # 净值 / 配置绘图、策略对比
 ├── report.py          # HTML 报告生成器（generate_report_html）
 ├── run_portfolio.py   # 单组合生产入口 + 指标计算（compute_metrics）

@@ -71,6 +71,7 @@ def generate_report_html(
     body = []
     body.append(_html_header(params))
     body.append(_section_overview(strategies))
+    body.append(_section_risk(strategies))
     body.append(_section_ranking(strategies))
     body.append(_section_matrix(per_strategy, name_by_code, holdings_order))
     body.append(_section_engines(per_strategy, name_by_code))
@@ -115,7 +116,7 @@ def _section_overview(strategies):
            "<div class='wrap'><table>",
            "<thead><tr><th class='name'>组合</th><th>模式</th><th>阈值</th>"
            "<th>期末资产</th><th>总收益</th><th>年化</th><th>最大回撤</th>"
-           "<th>波动率</th><th>夏普</th><th>卡玛</th><th>调仓</th></tr></thead><tbody>"]
+           "<th>波动率</th><th>夏普</th><th>索提诺</th><th>卡玛</th><th>胜率</th><th>调仓</th></tr></thead><tbody>"]
 
     def is_bench(s):
         return s.get("mode") == "buy_hold"
@@ -130,8 +131,28 @@ def _section_overview(strategies):
         out.append(_cell_pct(s.get("max_drawdown"), _neg_bg(s.get("max_drawdown"), vmin_dd)))
         out.append(_cell_pct(s.get("volatility")))
         out.append(_cell_num(s.get("sharpe"), _pos_bg(s.get("sharpe"), vmax_sharpe), 2))
+        out.append(_cell_num(s.get("sortino"), None, 2))
         out.append(_cell_num(s.get("calmar"), None, 2))
+        out.append(_cell_pct(s.get("win_rate")))
         out.append(_cell_int(s.get("rebalance_count")))
+        out.append("</tr>")
+    out.append("</tbody></table></div>")
+    return "\n".join(out)
+
+
+def _section_risk(strategies):
+    """风险指标小表：日 VaR/CVaR(95%) + 盈亏比。"""
+    rows = [s for s in strategies if s.get("mode") != "buy_hold"]
+    out = ["<h2>2. 风险指标 <span class='muted'>(日 VaR/CVaR 95%、盈亏比)</span></h2>",
+           "<div class='wrap'><table>",
+           "<thead><tr><th class='name'>组合</th><th>模式</th><th>阈值</th>"
+           "<th>VaR(95%,日)</th><th>CVaR(95%,日)</th><th>盈亏比</th></tr></thead><tbody>"]
+    for s in rows:
+        out.append("<tr>")
+        out.append(f"<td class='name'>{s['portfolio']}</td><td>{s['mode']}</td><td>{s['threshold']}</td>")
+        out.append(_cell_pct(s.get("var_95")))
+        out.append(_cell_pct(s.get("cvar_95")))
+        out.append(_cell_num(s.get("profit_loss_ratio"), None, 2))
         out.append("</tr>")
     out.append("</tbody></table></div>")
     return "\n".join(out)
@@ -153,7 +174,7 @@ def _section_ranking(strategies):
                f"<th>阈值</th><th>{metric}</th><th></th><th></th><th></th></tr></thead>" \
                f"<tbody>{cells}</tbody></table>"
 
-    out = ["<h2>2. 排名</h2><div class='rank'>"]
+    out = ["<h2>3. 排名</h2><div class='rank'>"]
     out.append(block("夏普 Top 3", by_sharpe, "annualized", lambda v: f"年化 {v:.2%}"))
     out.append(block("年化 Top 3", by_return, "annualized", lambda v: f"年化 {v:.2%}"))
     out.append("</div>")
@@ -212,7 +233,7 @@ def _section_matrix(per_strategy, name_by_code, holdings_order):
         body_rows.append("".join(cells))
 
     return (
-        "<h2>3. 品种盈利矩阵 <span class='muted'>(行=标的，列=策略)</span></h2>"
+        "<h2>4. 品种盈利矩阵 <span class='muted'>(行=标的，列=策略)</span></h2>"
         "<div class='toggle'>"
         "<button class='active' data-metric='r'>收益率 %</button>"
         "<button data-metric='p'>盈利 (万元)</button>"
@@ -229,7 +250,7 @@ def _section_engines(per_strategy, name_by_code):
         if md == "band":
             by_port.setdefault(p, []).append((t, ph))
 
-    out = ["<h2>4. 各组合利润发动机 <span class='muted'>(band ±0.5)</span></h2>",
+    out = ["<h2>5. 各组合利润发动机 <span class='muted'>(band ±0.5)</span></h2>",
            "<div class='eng'>"]
     for p in sorted(by_port):
         cands = by_port[p]

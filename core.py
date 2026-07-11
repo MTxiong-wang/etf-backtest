@@ -38,7 +38,8 @@ class ETFPortfolioBacktest(BTE):
         config: ETFPortfolioConfig,
         verbose: bool = True,
         monitor_step: int = 1,
-        info_cache: Optional[Dict] = None
+        info_cache: Optional[Dict] = None,
+        algo_stack: Optional[List] = None
     ):
         """
         初始化回测引擎
@@ -56,6 +57,7 @@ class ETFPortfolioBacktest(BTE):
         self.verbose = verbose
         self.monitor_step = max(1, int(monitor_step))
         self._info_cache = info_cache
+        self._algo_stack = algo_stack
 
         # 初始化父类
         super().__init__(
@@ -131,16 +133,19 @@ class ETFPortfolioBacktest(BTE):
         if summary_df is None:
             return
 
-        # 检查是否需要调仓
-        if self._check_rebalance_needed(date, summary_df):
-            self._execute_rebalance(date)
-            # 调仓改变了持仓，重新取快照用于记录
-            summary_df = self._daily_summary(date)
+        # 遍历 algo_stack（默认：检查调仓 + 记录），等价原 check→execute→record 流程
+        for algo in self._get_algo_stack():
+            summary_df = algo.run(self, date, summary_df)
             if summary_df is None:
                 return
 
-        # 记录当前组合状态
-        self._record_portfolio_status(date, summary_df)
+    def _get_algo_stack(self):
+        """返回 algo_stack：用户传入的优先，否则默认 [AlgoRebalance, AlgoRecord]
+        （包装现有 _check/_execute/_record，行为与重构前一致）。"""
+        if self._algo_stack is not None:
+            return self._algo_stack
+        from .algos import AlgoRebalance, AlgoRecord
+        return [AlgoRebalance(), AlgoRecord()]
 
     def backtest(self):
         """运行回测；循环结束后补记最后一个交易日，保证末日净值存在。"""
@@ -182,7 +187,7 @@ class ETFPortfolioBacktest(BTE):
             invest_amount = round(self.config.initial_capital * target_ratio, 2)
 
             try:
-                self.buy(code, invest_amount, date)
+                self.buy(code, round(invest_amount / (1 + self.config.buy_fee), 2), date)
                 if self.verbose:
                     print(f"  买入 {code} ({name}): CNY{invest_amount:,.2f} ({target_ratio:.2%})")
             except Exception as e:
@@ -323,14 +328,14 @@ class ETFPortfolioBacktest(BTE):
                     # 卖出超配部分
                     # 计算需要卖出的份额（考虑赎回费，估算为0.5%）
                     sell_nav = current_nav if current_nav > 0 else 1
-                    sell_share = round(delta / (1 - 0.005) / sell_nav, 2)
+                    sell_share = round(delta / (1 - self.config.redeem_fee) / sell_nav, 2)
                     self.sell(code, sell_share, date)
 
                     if self.verbose:
                         print(f"  卖出 {code} ({name}): {sell_share} 份, 约 CNY{delta:,.2f}")
                 else:
                     # 买入低配部分（round 到分，规避 xalpha 自定义申购费断言）
-                    buy_amount = round(abs(delta), 2)
+                    buy_amount = round(abs(delta) / (1 + self.config.buy_fee), 2)
                     self.buy(code, buy_amount, date)
 
                     if self.verbose:
@@ -389,12 +394,12 @@ class ETFPortfolioBacktest(BTE):
                     print(f"  错误: 买入 {code} 失败: {e}")
 
     def _swap(self, from_code, to_code, value, date, from_nav):
-        """卖出 value(净额) 的 from_code，同步买入 value 的 to_code；卖段含0.5%赎回费估算。"""
-        fee = 0.005
+        """卖出 value(净额) 的 from_code，同步买入 value 的 to_code；卖段含 redeem_fee 赎回费。"""
+        fee = self.config.redeem_fee
         # round 到分/份：规避 xalpha 自定义申购费断言（见 _initial_purchase）
         sell_share = round(value / (1 - fee) / from_nav, 2)
         self.sell(from_code, sell_share, date)
-        self.buy(to_code, round(value, 2), date)
+        self.buy(to_code, round(value / (1 + self.config.buy_fee), 2), date)
 
     def _record_portfolio_status(self, date: pd.Timestamp, summary_df):
         """

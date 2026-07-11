@@ -73,7 +73,9 @@ class ETFPortfolioConfig:
         rebalance_threshold: float = 0.02,
         rebalance_mode: str = "absolute",
         band_ratio: float = 0.5,
-        reservoir_code: Optional[str] = None
+        reservoir_code: Optional[str] = None,
+        redeem_fee: float = 0.005,
+        buy_fee: float = 0.0
     ):
         """
         初始化ETF投资组合配置
@@ -91,6 +93,8 @@ class ETFPortfolioConfig:
                              仅把触发的那只拉回目标，差额由 reservoir_code(资金池) 吸收
             band_ratio: 带状模式的相对带宽，默认0.5(即±50%)。如目标7.2%则带为[3.6%,10.8%]
             reservoir_code: 带状模式的资金池代码(如 "F006484" 短期国开债)，吸收再平衡差额、自身不设带
+            redeem_fee: 卖出赎回费率(默认0.005=0.5%)，替代 core.py 原硬编码
+            buy_fee: 买入费率(默认0.0=无费，符合ETF免佣)；>0 时买入金额按 amount/(1+buy_fee) 扣费
         """
         self.etf_list = etf_list
         self.start_date = start_date
@@ -100,6 +104,8 @@ class ETFPortfolioConfig:
         self.rebalance_mode = rebalance_mode
         self.band_ratio = band_ratio
         self.reservoir_code = reservoir_code
+        self.redeem_fee = redeem_fee
+        self.buy_fee = buy_fee
 
         # 验证并处理配置
         self._validate_and_normalize()
@@ -225,6 +231,8 @@ def build_config(
     threshold: Optional[float] = None,
     band_ratio: Optional[float] = None,
     reservoir: Optional[str] = None,
+    redeem_fee: float = 0.005,
+    buy_fee: float = 0.0,
 ) -> "ETFPortfolioConfig":
     """
     根据参数构造并校验一个 ``ETFPortfolioConfig``（复用其归一化逻辑）。
@@ -250,6 +258,8 @@ def build_config(
         end_date=end,
         initial_capital=capital,
         rebalance_mode=mode,
+        redeem_fee=redeem_fee,
+        buy_fee=buy_fee,
     )
 
     if mode == "band":

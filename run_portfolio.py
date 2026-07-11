@@ -132,6 +132,18 @@ def compute_metrics(history, initial_capital, rf=0.02):
     sharpe = (annualized - rf) / vol if vol > 0 else 0.0
     calmar = annualized / abs(max_dd) if max_dd < 0 else 0.0
 
+    # 扩展风险/收益指标（借鉴主流框架）
+    downside = rets[rets < 0]
+    downside_vol = float(downside.std() * np.sqrt(periods_per_year)) if len(downside) > 1 else 0.0
+    sortino = (annualized - rf) / downside_vol if downside_vol > 0 else 0.0
+    var_95 = float(rets.quantile(0.05)) if len(rets) > 0 else 0.0
+    tail = rets[rets <= var_95]
+    cvar_95 = float(tail.mean()) if len(tail) > 0 else var_95
+    win_rate = float((rets > 0).sum() / len(rets)) if len(rets) > 0 else 0.0
+    gains = rets[rets > 0]
+    losses = rets[rets < 0]
+    profit_loss_ratio = float(gains.mean() / abs(losses.mean())) if len(losses) > 0 and losses.mean() != 0 else 0.0
+
     return {
         "final": final,
         "total_return": total_return,
@@ -141,6 +153,11 @@ def compute_metrics(history, initial_capital, rf=0.02):
         "sharpe": sharpe,
         "calmar": calmar,
         "years": years,
+        "sortino": sortino,
+        "var_95": var_95,
+        "cvar_95": cvar_95,
+        "win_rate": win_rate,
+        "profit_loss_ratio": profit_loss_ratio,
     }
 
 
@@ -167,6 +184,11 @@ def print_report_block(title, metrics, rebalance_count, initial_capital):
     print(f"  最大回撤          {metrics['max_drawdown']:>11.2%}")
     print(f"  夏普比率(无风险2%) {metrics['sharpe']:>10.2f}")
     print(f"  卡玛比率          {metrics['calmar']:>11.2f}")
+    print(f"  索提诺比率        {metrics['sortino']:>11.2f}")
+    print(f"  胜率              {metrics['win_rate']:>11.2%}")
+    print(f"  盈亏比            {metrics['profit_loss_ratio']:>11.2f}")
+    print(f"  VaR(95%,日)       {metrics['var_95']:>11.2%}")
+    print(f"  CVaR(95%,日)      {metrics['cvar_95']:>11.2%}")
     print(f"  再平衡次数        {rebalance_count:>11d}")
     print("=" * 56)
 

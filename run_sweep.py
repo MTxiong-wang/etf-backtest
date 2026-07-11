@@ -36,6 +36,7 @@ from run_portfolio import run_config, compute_metrics
 CSV_COLUMNS = [
     "portfolio", "mode", "threshold", "final", "total_return",
     "annualized", "max_drawdown", "volatility", "sharpe", "calmar",
+    "sortino", "win_rate", "profit_loss_ratio", "var_95", "cvar_95",
     "rebalance_count",
 ]
 
@@ -49,18 +50,22 @@ def build_grid(sweep, portfolios):
     """生成 (portfolio_name, mode, thr_value, ETFPortfolioConfig) 列表。"""
     start, end = sweep["start"], sweep["end"]
     capital = sweep["initial_capital"]
+    redeem_fee = float(sweep.get("redeem_fee", 0.005))
+    buy_fee = float(sweep.get("buy_fee", 0.0))
     grid = []
     for p in portfolios:
         for b in sweep.get("band_ratios", []):
             cfg = build_config(
                 etf_list=p["etf_list"], start=start, end=end, capital=capital,
                 mode="band", band_ratio=b, reservoir=p.get("reservoir_code"),
+                redeem_fee=redeem_fee, buy_fee=buy_fee,
             )
             grid.append((p["name"], "band", b, cfg))
         for t in sweep.get("absolute_thresholds", []):
             cfg = build_config(
                 etf_list=p["etf_list"], start=start, end=end, capital=capital,
                 mode="absolute", threshold=t,
+                redeem_fee=redeem_fee, buy_fee=buy_fee,
             )
             grid.append((p["name"], "absolute", t, cfg))
     return grid
@@ -73,6 +78,8 @@ def run_benchmark(sweep, monitor_step, info_cache):
         etf_list=[{"code": bench["code"], "name": bench["name"], "target_ratio": 1.0}],
         start=sweep["start"], end=sweep["end"], capital=sweep["initial_capital"],
         mode="absolute", threshold=1.0,
+        redeem_fee=float(sweep.get("redeem_fee", 0.005)),
+        buy_fee=float(sweep.get("buy_fee", 0.0)),
     )
     return run_config(cfg, verbose=False, monitor_step=monitor_step, info_cache=info_cache)
 
@@ -83,7 +90,11 @@ def metrics_to_row(pname, mode, thr, metrics, rebalance_count):
         "final": metrics.get("final"), "total_return": metrics.get("total_return"),
         "annualized": metrics.get("annualized"), "max_drawdown": metrics.get("max_drawdown"),
         "volatility": metrics.get("volatility"), "sharpe": metrics.get("sharpe"),
-        "calmar": metrics.get("calmar"), "rebalance_count": rebalance_count,
+        "calmar": metrics.get("calmar"),
+        "sortino": metrics.get("sortino"), "win_rate": metrics.get("win_rate"),
+        "profit_loss_ratio": metrics.get("profit_loss_ratio"),
+        "var_95": metrics.get("var_95"), "cvar_95": metrics.get("cvar_95"),
+        "rebalance_count": rebalance_count,
     }
 
 

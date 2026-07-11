@@ -48,6 +48,7 @@ python examples.py
 - `run_sweep.py` — 配置化多参数扫描入口（见下文“配置化多参数扫描”）。
 - `report.py` — `generate_report_html`：把扫描结果渲染成自包含 HTML 报告（替代 PNG）。
 - `__init__.py` — 包入口：`import etf_backtest` 即调用 `configure_cache()`，把 xalpha `get_daily` 切到 **csv 后端**，行情落盘 `data/market_cache/`（详见下文“行情缓存（csv 落盘）”）。所有入口（`run_portfolio.py` / `run_sweep.py` / `examples.py`）都 `import etf_backtest`，故自动生效，无需各入口单独配置。
+- `algos.py` — 策略算法模块（借鉴 bt.Algo）：`Algo` 基类 + `AlgoRebalance` / `AlgoRecord`，包装 `core.py` 的 `_check` / `_execute` / `_record`。`ETFPortfolioBacktest(algo_stack=...)` 可传自定义 Algo 栈；默认 `[AlgoRebalance, AlgoRecord]` = 重构前行为（详见下文“Algo 模块化”）。
 
 ### 回测循环（`core.py`）
 
@@ -60,7 +61,15 @@ python examples.py
 1. **`"absolute"`**（默认）：任一标的实际权重偏离目标超过 `rebalance_threshold`（绝对百分点）即触发**全仓再平衡**，把所有标的拉回目标权重（`_execute_rebalance`）。
 2. **`"band"`**：带状相对再平衡。只有落到 `target*(1±band_ratio)` 带外的标的被拉回目标，**差额由 `reservoir_code`（资金池，通常是债券基金）吸收**，资金池自身不设带（`_execute_band` + `_swap`）。`band_ratio` 取极大值（如 `run_portfolio.py` 里用 `10.0`）等价于永不触发 = 买入持有。
 
-成本模型：卖出含 **0.5% 赎回费**估算（`fee = 0.005` 硬编码在 `_execute_rebalance` / `_swap`），买入无费。`_swap` 先卖超配、后买低配以降低资金池瞬时缺口。
+成本模型：卖出含赎回费（`config.redeem_fee`，默认 0.005=0.5%）、买入可配费率（`config.buy_fee`，默认 0=免佣）；`core.py` 的 `_execute_rebalance` / `_swap` / `_initial_purchase` 均读 `self.config.redeem_fee`/`buy_fee`（原硬编码 0.005 已移除）。`_swap` 先卖超配、后买低配以降低资金池瞬时缺口。
+
+### Algo 模块化（`algos.py`）
+
+`run()` 不再直接调 `_check_*`/`_execute_*`/`_record_*`，而是遍历 `self._get_algo_stack()` 返回的 Algo 栈，每个 `Algo.run(bt, date, summary_df)` 执行一步、返回更新后的 `summary_df`（返回 `None` 中断栈）。
+
+- 默认栈 `[AlgoRebalance, AlgoRecord]`：`AlgoRebalance` 包装 `_check_rebalance_needed` + `_execute_rebalance`（内部按 mode 分发 band/absolute），`AlgoRecord` 包装 `_record_portfolio_status`。**默认行为与重构前完全一致**（`diff` 验证 IDENTICAL）。
+- 自定义：`ETFPortfolioBacktest(cfg, algo_stack=[AlgoRecord()])` = 只记录不调仓 = 买入持有；可组合新 Algo 插入栈。
+- 现有 `_check_*`/`_execute_*`/`_record_*` 方法保留，Algo 内部调用，向后兼容。
 
 ### 代码前缀决定数据来源
 
@@ -76,7 +85,7 @@ python examples.py
 
 `core.generate_report()` / `print_report()` 依赖 xalpha 的 `get_current_mulfix()` + `xirrrate()` + `summary()`。**发生赎回后这些接口可能抛 `initial total cash too low`**，不可靠。
 
-因此 `run_portfolio.py` **刻意绕开** `generate_report()`，改用自带 `compute_metrics(history, initial_capital, rf=0.02)` 直接从 `portfolio_history` 净值序列算指标：总收益、年化、最大回撤、年化波动率、夏普（无风险利率 `rf`，默认 0.02）、卡玛。`make_report()` 把结果包装成 `compare_strategies` 能吃的精简字典——**但它只留 4 个字段、丢掉 sharpe/calmar/volatility**，所以需要完整指标时直接用 `compute_metrics` 的返回值。
+因此 `run_portfolio.py` **刻意绕开** `generate_report()`，改用自带 `compute_metrics(history, initial_capital, rf=0.02)` 直接从 `portfolio_history` 净值序列算指标：总收益、年化、最大回撤、年化波动率、夏普（无风险利率 `rf`，默认 0.02）、卡玛，以及扩展风险指标 **sortino / VaR_95 / CVaR_95（日，95%）/ 胜率 / 盈亏比**。`make_report()` 把结果包装成 `compare_strategies` 能吃的精简字典——**但它只留 4 个字段、丢掉 sharpe/calmar/volatility**，所以需要完整指标时直接用 `compute_metrics` 的返回值。
 
 > 新增/修改指标计算时，**优先扩展 `run_portfolio.py` 的 `compute_metrics`，不要依赖 `core.generate_report`**。`examples.py` 仍用 `print_report()` 仅因其场景简单、未必触发赎回。
 
