@@ -1,6 +1,6 @@
 {
   "name": "aggressive",
-  "comment": "进取型：权益≈75% / 债券≈15% / 黄金≈5% / 现金≈5%。加重科创/创业板/恒生科技/纳指/标普等成长与海外敞口，债券与现金压缩。",
+  "comment": "进取型（去现金版）：权益≈75% / 债券≈20% / 黄金≈5%。原现金5%权重均分给3个债券标的（每个+0.016667）。加重科创/创业板/恒生科技/纳指/标普等成长与海外敞口，债券与现金压缩。",
   "reservoir_code": "F006484",
   "etf_list": [
     {"code": "SH510300", "name": "沪深300ETF",   "target_ratio": 0.100},
@@ -16,9 +16,8 @@
     {"code": "SH518880", "name": "黄金ETF",       "target_ratio": 0.050},
     {"code": "SH513030", "name": "德国DAX-ETF",   "target_ratio": 0.035},
     {"code": "SH513880", "name": "日经225-ETF",   "target_ratio": 0.035},
-    {"code": "F006484",  "name": "广发国开债1-3y", "target_ratio": 0.080},
-    {"code": "F003376",  "name": "广发国开债7-10y","target_ratio": 0.050},
-    {"code": "F004419",  "name": "美元债QDII",    "target_ratio": 0.020},
-    {"code": "SH511990", "name": "货币ETF(现金)", "target_ratio": 0.050}
+    {"code": "F006484",  "name": "广发国开债1-3y", "target_ratio": 0.096667},
+    {"code": "F003376",  "name": "广发国开债7-10y","target_ratio": 0.066667},
+    {"code": "F004419",  "name": "美元债QDII",    "target_ratio": 0.036667}
   ]
 }

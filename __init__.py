@@ -52,21 +52,30 @@ import sys
 
 
 def setup_logging():
-    """配置日志：UTF-8 stdout/stderr + 时间戳格式。
+    """配置日志：UTF-8 stdout/stderr + 时间戳格式 + 落盘到 output/run.log。
 
-    解决 Windows 控制台默认 GBK 导致的中文乱码，并给日志加时间戳。
-    在 ``import etf_backtest`` 时自动调用一次。
+    解决 Windows 控制台默认 GBK 中文乱码，给日志加时间戳，并追加写入
+    ``output/run.log``（多次运行的日志累积，UTF-8 编码）。在 ``import etf_backtest``
+    时自动调用一次。
     """
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
         sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     except Exception:
         pass
+    handlers = [logging.StreamHandler(sys.stdout)]
+    log_dir = os.path.join(os.path.dirname(__file__), "output")
+    try:
+        os.makedirs(log_dir, exist_ok=True)
+        handlers.append(logging.FileHandler(
+            os.path.join(log_dir, "run.log"), mode="a", encoding="utf-8"))
+    except Exception:
+        pass
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
-        stream=sys.stdout,
+        handlers=handlers,
     )
 
 

@@ -5,7 +5,7 @@
   "initial_capital": 1000000,
   "monitor_step": 5,
   "rf": 0.02,
-  "redeem_fee": 0.005,
+  "redeem_fee": 0.0001,
   "buy_fee": 0.0,
   "benchmark": {"code": "SH510300", "name": "沪深300ETF"},
   "band_ratios": [0.25, 0.5, 0.75],

@@ -1,24 +1,23 @@
 {
   "name": "conservative",
-  "comment": "保守型：债券≈48% / 现金≈14% / 黄金≈10% / 权益≈28%。重债券与现金，权益以沪深300/红利/海外为主，成长类仅象征性配置。权重无需精确和为1，ETFPortfolioConfig 会自动归一化。",
+  "comment": "保守型（去现金版）：债券≈48% / 黄金≈10% / 权益≈42%。原现金15%权重均分给12个权益标的（每个+0.0125）。权重无需精确和为1，ETFPortfolioConfig 会自动归一化。",
   "reservoir_code": "F006484",
   "etf_list": [
-    {"code": "SH510300", "name": "沪深300ETF",   "target_ratio": 0.080},
-    {"code": "SH510050", "name": "上证50ETF",     "target_ratio": 0.030},
-    {"code": "SH588080", "name": "科创50ETF",     "target_ratio": 0.010},
-    {"code": "SH512890", "name": "红利低波ETF",   "target_ratio": 0.050},
-    {"code": "SZ159920", "name": "恒生ETF",       "target_ratio": 0.005},
-    {"code": "SH513180", "name": "恒生科技ETF",   "target_ratio": 0.005},
-    {"code": "SH510500", "name": "中证500ETF",    "target_ratio": 0.010},
-    {"code": "SH512100", "name": "中证1000ETF",   "target_ratio": 0.010},
-    {"code": "SZ159941", "name": "纳指100ETF",    "target_ratio": 0.030},
-    {"code": "SH513500", "name": "标普500ETF",    "target_ratio": 0.030},
+    {"code": "SH510300", "name": "沪深300ETF",   "target_ratio": 0.0925},
+    {"code": "SH510050", "name": "上证50ETF",     "target_ratio": 0.0425},
+    {"code": "SH588080", "name": "科创50ETF",     "target_ratio": 0.0225},
+    {"code": "SH512890", "name": "红利低波ETF",   "target_ratio": 0.0625},
+    {"code": "SZ159920", "name": "恒生ETF",       "target_ratio": 0.0175},
+    {"code": "SH513180", "name": "恒生科技ETF",   "target_ratio": 0.0175},
+    {"code": "SH510500", "name": "中证500ETF",    "target_ratio": 0.0225},
+    {"code": "SH512100", "name": "中证1000ETF",   "target_ratio": 0.0225},
+    {"code": "SZ159941", "name": "纳指100ETF",    "target_ratio": 0.0425},
+    {"code": "SH513500", "name": "标普500ETF",    "target_ratio": 0.0425},
+    {"code": "SH513030", "name": "德国DAX-ETF",   "target_ratio": 0.0275},
+    {"code": "SH513880", "name": "日经225-ETF",   "target_ratio": 0.0275},
     {"code": "SH518880", "name": "黄金ETF",       "target_ratio": 0.100},
-    {"code": "SH513030", "name": "德国DAX-ETF",   "target_ratio": 0.015},
-    {"code": "SH513880", "name": "日经225-ETF",   "target_ratio": 0.015},
     {"code": "F006484",  "name": "广发国开债1-3y", "target_ratio": 0.250},
     {"code": "F003376",  "name": "广发国开债7-10y","target_ratio": 0.150},
-    {"code": "F004419",  "name": "美元债QDII",    "target_ratio": 0.100},
-    {"code": "SH511990", "name": "货币ETF(现金)", "target_ratio": 0.150}
+    {"code": "F004419",  "name": "美元债QDII",    "target_ratio": 0.100}
   ]
 }
