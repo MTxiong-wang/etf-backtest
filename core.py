@@ -76,6 +76,7 @@ class ETFPortfolioBacktest(BTE):
         self.portfolio_history = []
         self._day_idx = 0
         self._last_date = None
+        self.fee_cost = 0.0  # 累积交易成本（赎回费+申购费）。xalpha sell/buy 不扣费，core 自己扣
 
     def prepare(self):
         """初始化回测环境，建仓买入"""
@@ -95,6 +96,9 @@ class ETFPortfolioBacktest(BTE):
                     self.infos[code] = info
                     if self._info_cache is not None:
                         self._info_cache[code] = info
+                # 注：xalpha 的 sell/buy 不扣手续费（shuhui 默认 zero rate，feelabel
+                # 只支持固定编码、不支持任意 fee）。赎回/申购费由 core 在 fee_cost 累积，
+                # _record_portfolio_status 时从 total 扣除（见 _swap/_execute_rebalance）。
 
             except Exception as e:
                 logger.warning(f"获取 {code} 数据失败: {e}")
@@ -187,7 +191,8 @@ class ETFPortfolioBacktest(BTE):
             invest_amount = round(self.config.initial_capital * target_ratio, 2)
 
             try:
-                self.buy(code, round(invest_amount / (1 + self.config.buy_fee), 2), date)
+                self.buy(code, round(invest_amount, 2), date)
+                self.fee_cost += invest_amount * self.config.buy_fee
                 if self.verbose:
                     logger.info(f"  买入 {code} ({name}): CNY{invest_amount:,.2f} ({target_ratio:.2%})")
             except Exception as e:
@@ -319,18 +324,19 @@ class ETFPortfolioBacktest(BTE):
 
             try:
                 if delta > 0:
-                    # 卖出超配部分
-                    # 计算需要卖出的份额（考虑赎回费，估算为0.5%）
+                    # 卖出超配部分（净额，赎回费在 fee_cost 累积）
                     sell_nav = current_nav if current_nav > 0 else 1
-                    sell_share = round(delta / (1 - self.config.redeem_fee) / sell_nav, 2)
+                    sell_share = round(delta / sell_nav, 2)
                     self.sell(code, sell_share, date)
+                    self.fee_cost += delta * self.config.redeem_fee
 
                     if self.verbose:
                         logger.info(f"  卖出 {code} ({name}): {sell_share} 份, 约 CNY{delta:,.2f}")
                 else:
-                    # 买入低配部分（round 到分，规避 xalpha 自定义申购费断言）
-                    buy_amount = round(abs(delta) / (1 + self.config.buy_fee), 2)
+                    # 买入低配部分（净额，申购费在 fee_cost 累积）
+                    buy_amount = round(abs(delta), 2)
                     self.buy(code, buy_amount, date)
+                    self.fee_cost += buy_amount * self.config.buy_fee
 
                     if self.verbose:
                         logger.info(f"  买入 {code} ({name}): CNY{buy_amount:,.2f}")
@@ -368,32 +374,44 @@ class ETFPortfolioBacktest(BTE):
                 continue
             triggers.append((code, etf_config["name"], delta))
 
-        # 先卖超配(->资金池) 再买低配(资金池->)，降低资金池瞬时缺口
-        res_nav = nav_of(res)
+        # 净额合并：累加每个标的的净流，每标的当天只发一笔（避免资金池同日多笔被
+        # xalpha trade 丢弃→低配买入已入账但资金池卖出没记账→组合现值凭空虚增）。
+        net = {}  # code -> 净流（正=买入金额，负=卖出金额）
         for code, name, delta in triggers:
-            if delta > 0:
+            if delta > 0:  # 超配：卖 code、资金池买
+                net[code] = net.get(code, 0) - delta
+                net[res] = net.get(res, 0) + delta
+                self.fee_cost += delta * self.config.redeem_fee
+            else:  # 低配：买 code、资金池卖
+                net[code] = net.get(code, 0) + (-delta)
+                net[res] = net.get(res, 0) - (-delta)
+                self.fee_cost += (-delta) * self.config.buy_fee
+        # 每个标的只发一笔净额（先卖 net<0 再买 net>0，降低资金池瞬时缺口）
+        for code, amt in net.items():
+            if amt < -0.5:
                 try:
-                    self._swap(code, res, delta, date, nav_of(code))
+                    self.sell(code, round(-amt / nav_of(code), 2), date)
                     if self.verbose:
-                        logger.info(f"  卖 {code}({name}) 回吐 CNY{delta:,.0f} -> 资金池 {res}")
+                        logger.info(f"  卖 {code} 净额 CNY{-amt:,.0f}")
                 except Exception as e:
                     logger.error(f"卖出 {code} 失败: {e}")
-        for code, name, delta in triggers:
-            if delta < 0:
+        for code, amt in net.items():
+            if amt > 0.5:
                 try:
-                    self._swap(res, code, -delta, date, res_nav)
+                    self.buy(code, round(amt, 2), date)
                     if self.verbose:
-                        logger.info(f"  资金池 {res} -> 买 {code}({name}) 补仓 CNY{-delta:,.0f}")
+                        logger.info(f"  买 {code} 净额 CNY{amt:,.0f}")
                 except Exception as e:
                     logger.error(f"买入 {code} 失败: {e}")
 
     def _swap(self, from_code, to_code, value, date, from_nav):
-        """卖出 value(净额) 的 from_code，同步买入 value 的 to_code；卖段含 redeem_fee 赎回费。"""
-        fee = self.config.redeem_fee
-        # round 到分/份：规避 xalpha 自定义申购费断言（见 _initial_purchase）
-        sell_share = round(value / (1 - fee) / from_nav, 2)
+        """卖出 value(净额) 的 from_code，买入 value 的 to_code；赎回费/申购费在 fee_cost 累积。"""
+        # xalpha 不扣手续费，core 在 fee_cost 累积、_record 时从 total 扣
+        sell_share = round(value / from_nav, 2)
         self.sell(from_code, sell_share, date)
-        self.buy(to_code, round(value / (1 + self.config.buy_fee), 2), date)
+        self.fee_cost += value * self.config.redeem_fee
+        self.buy(to_code, round(value, 2), date)
+        self.fee_cost += value * self.config.buy_fee
 
     def _record_portfolio_status(self, date: pd.Timestamp, summary_df):
         """
@@ -408,6 +426,8 @@ class ETFPortfolioBacktest(BTE):
 
         try:
             total_value = summary_df[summary_df["基金名称"] == "总计"]["基金现值"].iloc[0]
+            # 扣除累积交易成本（xalpha 不扣费，core 在 fee_cost 累积后这里扣除）
+            total_value = total_value - self.fee_cost
 
             status = {
                 'date': date,

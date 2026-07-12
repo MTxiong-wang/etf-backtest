@@ -8,6 +8,7 @@
   "redeem_fee": 0.0001,
   "buy_fee": 0.0,
   "benchmark": {"code": "SH510300", "name": "沪深300ETF"},
-  "band_ratios": [0.25, 0.5, 0.75],
-  "absolute_thresholds": [0.02, 0.05, 0.10]
+  "band_ratios": [0.05, 0.10, 0.15, 0.20, 0.25, 0.30, 0.35, 0.40, 0.45, 0.50],
+  "absolute_thresholds": [],
+  "mixed_band": true
 }

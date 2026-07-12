@@ -56,14 +56,15 @@ def _load_default_sweep():
     return load_sweep_file(_DEFAULT_SWEEP_FILE)
 
 
-def run_config(config, verbose=False, monitor_step=5, info_cache=None):
+def run_config(config, verbose=False, monitor_step=5, info_cache=None, algo_stack=None):
     """通用回测入口：接收已构造的 ETFPortfolioConfig，运行 prepare()+backtest()，返回引擎实例。
 
     模式无关（band/absolute 由 config 携带）。info_cache 可在多次回测间共享
     已抓取的标的数据（尤其 F 类场外基金），显著减少网格扫描时的网络请求。
+    algo_stack 可传自定义 Algo 栈（如 [AlgoPerHoldingBand(), AlgoRecord()] 跑混合 band）。
     """
     bt = ETFPortfolioBacktest(config, verbose=verbose, monitor_step=monitor_step,
-                              info_cache=info_cache)
+                              info_cache=info_cache, algo_stack=algo_stack)
     bt.prepare()
     bt.backtest()
     return bt

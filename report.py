@@ -70,6 +70,7 @@ def generate_report_html(
     """
     body = []
     body.append(_html_header(params))
+    body.append(_section_metrics_guide())
     body.append(_section_overview(strategies))
     body.append(_section_risk(strategies))
     body.append(_section_ranking(strategies))
@@ -104,6 +105,21 @@ def _html_header(params):
   <span><b>阈值网格</b> band {params.get('band_ratios')} / absolute {params.get('absolute_thresholds')}</span>
 </div>
 <p class='hint'>配色：红=盈利/上涨，蓝=亏损/下跌（A 股红涨惯例）。</p>"""
+
+
+def _section_metrics_guide():
+    """指标含义速查（简短说明怎么看）。"""
+    return """
+<h2>指标速查</h2>
+<div class='params' style='display:block'>
+<p><b>收益</b>：年化（年化收益率，越高越好）、总收益、期末资产。</p>
+<p><b>风险</b>：最大回撤（峰值到谷值的最大跌幅，绝对值越小越好）、波动率（年化标准差，越小越稳）。</p>
+<p><b>风险调整收益</b>（越高越好，>1 为优）：夏普 = (年化−无风险利率)/总波动；索提诺 = 分母只用下行波动（不惩罚上涨，通常 ≥ 夏普）；卡玛 = 年化/|最大回撤|。</p>
+<p><b>尾部风险（日）</b>：VaR(95%) = 95% 交易日亏损不超此值；CVaR(95%) = 跌破 VaR 时的平均亏损（更负 = 尾部风险越大）。</p>
+<p><b>盈利质量</b>：胜率 = 盈利日占比（>50% 多数日赚）；盈亏比 = 平均盈利/平均亏损（>1 赚得多）。</p>
+<p><b>调仓次数</b>：再平衡触发次数（band 越窄越频繁）。</p>
+<p class='hint'>一句话：年化高 + 回撤小 + 夏普/索提诺 >1 + VaR 绝对值小 = 好策略。配色：红=盈利/上涨，蓝=亏损/下跌。</p>
+</div>"""
 
 
 def _section_overview(strategies):

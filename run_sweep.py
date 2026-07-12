@@ -46,32 +46,49 @@ CSV_COLUMNS = [
 
 
 def fmt_threshold(mode, thr):
-    """阈值的人类可读串：band 用 ±，absolute 用原值。"""
-    return f"±{thr:g}" if mode == "band" else f"{thr:g}"
+    """阈值的人类可读串：band 用 ±，mixed_band 用 per-holding，absolute 用原值。"""
+    if mode == "band":
+        return f"±{thr:g}"
+    if mode == "mixed_band":
+        return "per-holding"
+    return f"{thr:g}"
 
 
 def build_grid(sweep, portfolios):
-    """生成 (portfolio_name, mode, thr_value, ETFPortfolioConfig) 列表。"""
+    """生成 (portfolio_name, mode, thr_value, ETFPortfolioConfig, algo_stack) 列表。
+
+    algo_stack 为 None 时用默认（AlgoRebalance）；混合 band 传 [AlgoPerHoldingBand, AlgoRecord]，
+    per-holding band_ratio 从 portfolio.json 的 etf_list 读。
+    """
+    from etf_backtest.algos import AlgoPerHoldingBand, AlgoRecord
     start, end = sweep["start"], sweep["end"]
     capital = sweep["initial_capital"]
     redeem_fee = float(sweep.get("redeem_fee", 0.005))
     buy_fee = float(sweep.get("buy_fee", 0.0))
     grid = []
     for p in portfolios:
+        # 混合 band（AlgoPerHoldingBand，per-holding band_ratio 从 portfolio.json 读）
+        if sweep.get("mixed_band"):
+            cfg = build_config(
+                etf_list=p["etf_list"], start=start, end=end, capital=capital,
+                mode="band", band_ratio=0.5, reservoir=p.get("reservoir_code"),
+                redeem_fee=redeem_fee, buy_fee=buy_fee,
+            )
+            grid.append((p["name"], "mixed_band", 0.0, cfg, [AlgoPerHoldingBand(), AlgoRecord()]))
         for b in sweep.get("band_ratios", []):
             cfg = build_config(
                 etf_list=p["etf_list"], start=start, end=end, capital=capital,
                 mode="band", band_ratio=b, reservoir=p.get("reservoir_code"),
                 redeem_fee=redeem_fee, buy_fee=buy_fee,
             )
-            grid.append((p["name"], "band", b, cfg))
+            grid.append((p["name"], "band", b, cfg, None))
         for t in sweep.get("absolute_thresholds", []):
             cfg = build_config(
                 etf_list=p["etf_list"], start=start, end=end, capital=capital,
                 mode="absolute", threshold=t,
                 redeem_fee=redeem_fee, buy_fee=buy_fee,
             )
-            grid.append((p["name"], "absolute", t, cfg))
+            grid.append((p["name"], "absolute", t, cfg, None))
     return grid
 
 
@@ -165,9 +182,9 @@ def main():
     per_strategy = {}  # (portfolio, mode, thr) -> {canonical_code: 标的级盈利指标}
     t0 = time.time()
 
-    for i, (pname, mode, thr, cfg) in enumerate(grid, 1):
+    for i, (pname, mode, thr, cfg, algo_stack) in enumerate(grid, 1):
         ts = time.time()
-        bt = run_config(cfg, verbose=False, monitor_step=monitor_step, info_cache=info_cache)
+        bt = run_config(cfg, verbose=False, monitor_step=monitor_step, info_cache=info_cache, algo_stack=algo_stack)
         m = compute_metrics(bt.portfolio_history, capital, rf=rf)
         rows.append(metrics_to_row(pname, mode, thr, m, bt.rebalance_count))
         per_strategy[(pname, mode, thr)] = capture_holding_profit(bt, sweep["end"], summary_to_canon)
